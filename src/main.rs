@@ -1,224 +1,373 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-//! 密信：在两台电脑之间传一句秘密。
-
+//! 密信桌面版：把“算法”藏在简单的文字与文件传递流程后面。
 mod crypto;
 
-use crypto::{decrypt, encrypt};
+use base64::Engine as _;
+use crypto::{
+    decrypt_payload, decrypt_with, encrypt_for, generate_identity, public_from_private, Envelope,
+    FileMeta, IDENTITY_PREFIX,
+};
 use eframe::egui;
+use qrcode::{types::Color, QrCode};
+use std::{fs, path::PathBuf};
 
-#[derive(Default, PartialEq)]
-enum Screen {
-    #[default]
-    Home,
-    Encrypt,
-    Decrypt,
+#[derive(PartialEq)]
+enum Tab {
+    Send,
+    Receive,
+    Identity,
 }
-
-#[derive(Default)]
-struct SecretMessageApp {
-    screen: Screen,
-    password: String,
-    password_confirmation: String,
-    message: String,
-    token: String,
-    error: String,
+struct App {
+    tab: Tab,
+    mode: usize,
+    text: String,
+    result: String,
+    secret: String,
+    confirm: String,
+    recipient: String,
+    file: Option<PathBuf>,
+    identity: (String, String),
     notice: String,
 }
 
-impl SecretMessageApp {
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    fn copy(&mut self, value: &str) {
-        match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(value)) {
-            Ok(()) => {
-                self.error.clear();
-                self.notice = "已复制到剪贴板，可以粘贴到聊天窗口。".into();
-            }
-            Err(_) => self.error = "复制失败，请手动选中内容复制。".into(),
+impl App {
+    fn new() -> Self {
+        let identity =
+            load_identity().unwrap_or_else(|| generate_identity().expect("无法生成本机身份"));
+        save_identity(&identity.0);
+        Self {
+            tab: Tab::Send,
+            mode: 0,
+            text: String::new(),
+            result: String::new(),
+            secret: String::new(),
+            confirm: String::new(),
+            recipient: String::new(),
+            file: None,
+            identity,
+            notice: "本机身份已准备好".into(),
         }
     }
-
-    fn heading(ui: &mut egui::Ui, title: &str, description: &str) {
-        ui.heading(title);
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new(description).color(egui::Color32::from_gray(110)));
-        ui.add_space(22.0);
-    }
-
-    fn password_field(ui: &mut egui::Ui, label: &str, value: &mut String) {
-        ui.label(label);
-        ui.add_space(5.0);
-        ui.add_sized(
-            [ui.available_width(), 38.0],
-            egui::TextEdit::singleline(value)
-                .password(true)
-                .hint_text("输入双方约定的密码"),
-        );
-        ui.add_space(14.0);
-    }
-
-    fn feedback(&self, ui: &mut egui::Ui) {
-        if !self.error.is_empty() {
-            ui.add_space(12.0);
-            ui.colored_label(egui::Color32::from_rgb(180, 55, 45), &self.error);
-        } else if !self.notice.is_empty() {
-            ui.add_space(12.0);
-            ui.colored_label(egui::Color32::from_rgb(45, 125, 85), &self.notice);
+    fn send(&mut self, ui: &mut egui::Ui) {
+        ui.heading("发一份安全内容");
+        ui.label("选择传文字，或把文本文件封装后发送。接收方无需安装额外工具。");
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.mode, 0, "约定一个口令");
+            ui.selectable_value(&mut self.mode, 1, "发给一位联系人");
+        });
+        if self.mode == 1 {
+            ui.label("粘贴对方的身份信息，或扫码后的文字");
+            ui.add(egui::TextEdit::multiline(&mut self.recipient).desired_rows(3));
         }
-    }
-
-    fn home(&mut self, ui: &mut egui::Ui) {
-        ui.vertical_centered(|ui| {
-            ui.add_space(32.0);
-            ui.label(egui::RichText::new("密信").size(38.0).strong());
-            ui.add_space(8.0);
-            ui.label("两台电脑，同一个密码，传一句秘密");
-            ui.add_space(38.0);
-            if ui
-                .add_sized([270.0, 48.0], egui::Button::new("加密一段话"))
-                .clicked()
-            {
-                self.screen = Screen::Encrypt;
-                self.error.clear();
-                self.notice.clear();
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("选择文本文件").clicked() {
+                self.file = rfd::FileDialog::new()
+                    .add_filter("文本", &["txt", "md", "csv", "json", "log"])
+                    .pick_file();
             }
-            ui.add_space(12.0);
-            if ui
-                .add_sized([270.0, 48.0], egui::Button::new("解密收到的密文"))
-                .clicked()
-            {
-                self.screen = Screen::Decrypt;
-                self.error.clear();
-                self.notice.clear();
+            if let Some(path) = &self.file {
+                ui.label(path.file_name().unwrap_or_default().to_string_lossy());
             }
-            ui.add_space(42.0);
-            ui.label(
-                egui::RichText::new("密码请当面说或打电话说，不要和密文发在同一个聊天里。")
-                    .small()
-                    .color(egui::Color32::from_gray(115)),
+        });
+        if self.file.is_none() {
+            ui.add(
+                egui::TextEdit::multiline(&mut self.text)
+                    .hint_text("写下要传递的内容…")
+                    .desired_rows(8),
             );
+        }
+        if self.mode == 0 {
+            ui.horizontal(|ui| {
+                ui.label("口令");
+                ui.add(egui::TextEdit::singleline(&mut self.secret).password(true));
+                ui.label("再次输入");
+                ui.add(egui::TextEdit::singleline(&mut self.confirm).password(true));
+            });
+        }
+        if ui.button("生成可发送内容").clicked() {
+            self.do_send();
+        }
+        if !self.result.is_empty() {
+            ui.label("生成成功，下面内容可复制发送：");
+            ui.add(egui::TextEdit::multiline(&mut self.result).desired_rows(6));
+            if ui.button("复制").clicked() {
+                ui.ctx().copy_text(self.result.clone());
+                self.notice = "已复制".into();
+            }
+        }
+    }
+    fn do_send(&mut self) {
+        let (bytes, meta) = match &self.file {
+            Some(path) => match fs::read(path) {
+                Ok(bytes) => (
+                    bytes,
+                    Some(FileMeta {
+                        name: path
+                            .file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into(),
+                        extension: path
+                            .extension()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into(),
+                        content_type: "text/plain".into(),
+                    }),
+                ),
+                Err(e) => {
+                    self.notice = format!("读取文件失败：{e}");
+                    return;
+                }
+            },
+            None => (self.text.as_bytes().to_vec(), None),
+        };
+        if bytes.is_empty() {
+            self.notice = "内容不能为空".into();
+            return;
+        }
+        let packet = serde_json::to_vec(&Envelope {
+            kind: if meta.is_some() {
+                "text-file".into()
+            } else {
+                "text".into()
+            },
+            meta,
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+        })
+        .unwrap();
+        let out = if self.mode == 0 {
+            if self.secret.is_empty() || self.secret != self.confirm {
+                self.notice = "请填写相同的口令".into();
+                return;
+            }
+            crypto::encrypt_payload(&self.secret, &packet)
+        } else {
+            encrypt_for(&self.recipient, &packet)
+        };
+        match out {
+            Ok(v) => {
+                self.result = v;
+                self.notice = "内容已加密".into();
+            }
+            Err(e) => self.notice = e,
+        }
+    }
+    fn receive(&mut self, ui: &mut egui::Ui) {
+        ui.heading("打开收到的内容");
+        ui.label("粘贴密文，或选择密信文件。密信只在本机解开。");
+        ui.add(
+            egui::TextEdit::multiline(&mut self.result)
+                .hint_text("把收到的内容粘贴到这里…")
+                .desired_rows(8),
+        );
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.mode, 0, "口令");
+            ui.selectable_value(&mut self.mode, 1, "本机身份");
+        });
+        if self.mode == 0 {
+            ui.add(egui::TextEdit::singleline(&mut self.secret).password(true));
+        }
+        if ui.button("解开内容").clicked() {
+            self.do_receive();
+        }
+        if !self.text.is_empty() {
+            ui.separator();
+            ui.label("解开后的文字");
+            ui.add(egui::TextEdit::multiline(&mut self.text).desired_rows(8));
+            if ui.button("复制原文").clicked() {
+                ui.ctx().copy_text(self.text.clone());
+            }
+        }
+    }
+    fn do_receive(&mut self) {
+        let plain = if self.result.trim_start().starts_with(IDENTITY_PREFIX) {
+            decrypt_with(&self.identity.0, &self.result)
+        } else {
+            decrypt_payload(&self.secret, &self.result)
+        };
+        match plain {
+            Ok(bytes) if serde_json::from_slice::<Envelope>(&bytes).is_err() => {
+                self.text = String::from_utf8_lossy(&bytes).into();
+                self.notice = "已解开旧版文字密信".into();
+            }
+            Ok(bytes) => match serde_json::from_slice::<Envelope>(&bytes) {
+                Ok(packet) => match base64::engine::general_purpose::STANDARD.decode(packet.data) {
+                    Ok(bytes) if packet.kind == "text-file" => {
+                        let meta = packet.meta.unwrap_or(FileMeta {
+                            name: "解密文件".into(),
+                            extension: "txt".into(),
+                            content_type: "text/plain".into(),
+                        });
+                        let filename = if meta.extension.is_empty() {
+                            meta.name
+                        } else {
+                            format!("{}.{}", meta.name, meta.extension)
+                        };
+                        if let Some(path) =
+                            rfd::FileDialog::new().set_file_name(filename).save_file()
+                        {
+                            match fs::write(path, bytes) {
+                                Ok(_) => self.notice = "文件已解开并保存".into(),
+                                Err(e) => self.notice = format!("保存文件失败：{e}"),
+                            }
+                        }
+                    }
+                    Ok(bytes) => {
+                        self.text = String::from_utf8_lossy(&bytes).into();
+                        self.notice = "已解开".into();
+                    }
+                    Err(_) => self.notice = "内容数据损坏。".into(),
+                },
+                Err(_) => self.notice = "旧版或损坏的密信，无法读取。".into(),
+            },
+            Err(e) => self.notice = e,
+        }
+    }
+    fn identity(&mut self, ui: &mut egui::Ui) {
+        ui.heading("我的安全身份");
+        ui.label("这是本机自动生成的一对身份信息。把下面的公开部分发给联系人，对方就能只发给你。");
+        ui.label("公开身份信息（可复制或扫码）");
+        ui.add(egui::TextEdit::multiline(&mut self.identity.1).desired_rows(7));
+        if ui.button("复制公开身份").clicked() {
+            ui.ctx().copy_text(self.identity.1.clone());
+            self.notice = "已复制公开身份".into();
+        }
+        ui.separator();
+        ui.label("二维码预览");
+        qr(ui, &self.identity.1);
+        ui.small("私密身份只保存在本机，位置：应用数据目录。不要发送给任何人。");
+    }
+}
+
+impl eframe::App for App {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading("密信");
+                ui.label("把重要内容安全地交给对方");
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.selectable_label(self.tab == Tab::Send, "发送").clicked() {
+                    self.tab = Tab::Send;
+                }
+                if ui
+                    .selectable_label(self.tab == Tab::Receive, "接收")
+                    .clicked()
+                {
+                    self.tab = Tab::Receive;
+                }
+                if ui
+                    .selectable_label(self.tab == Tab::Identity, "我的身份")
+                    .clicked()
+                {
+                    self.tab = Tab::Identity;
+                }
+            });
+            ui.separator();
+            match self.tab {
+                Tab::Send => self.send(ui),
+                Tab::Receive => self.receive(ui),
+                Tab::Identity => self.identity(ui),
+            }
+            ui.separator();
+            ui.colored_label(egui::Color32::from_rgb(30, 110, 90), &self.notice);
         });
     }
-
-    fn encrypt_screen(&mut self, ui: &mut egui::Ui) {
-        Self::heading(ui, "加密", "把一句话变成可以安全发送的密文。");
-        Self::password_field(ui, "设一个密码", &mut self.password);
-        Self::password_field(ui, "确认密码", &mut self.password_confirmation);
-        ui.label("要保密的话");
-        ui.add_space(5.0);
-        ui.add_sized(
-            [ui.available_width(), 105.0],
-            egui::TextEdit::multiline(&mut self.message).hint_text("写下要传给对方的话"),
-        );
-        ui.add_space(18.0);
-        if ui
-            .add_sized([ui.available_width(), 42.0], egui::Button::new("生成密文"))
-            .clicked()
-        {
-            self.error.clear();
-            self.notice.clear();
-            if self.password.is_empty() {
-                self.error = "密码不能为空。".into();
-            } else if self.password != self.password_confirmation {
-                self.error = "两次输入的密码不一样。".into();
-            } else if self.message.trim().is_empty() {
-                self.error = "要保密的话不能为空。".into();
-            } else {
-                match encrypt(&self.password, &self.message) {
-                    Ok(token) => {
-                        self.token = token;
-                        let token = self.token.clone();
-                        self.copy(&token);
-                    }
-                    Err(error) => self.error = error,
-                }
-            }
-        }
-        if !self.token.is_empty() {
-            ui.add_space(18.0);
-            ui.label("密文");
-            ui.add_space(5.0);
-            ui.add(egui::TextEdit::multiline(&mut self.token).desired_rows(3));
-            if ui.button("再次复制").clicked() {
-                let token = self.token.clone();
-                self.copy(&token);
-            }
-        }
-        self.feedback(ui);
-    }
-
-    fn decrypt_screen(&mut self, ui: &mut egui::Ui) {
-        Self::heading(ui, "解密", "粘贴对方发来的密文，查看原文。");
-        Self::password_field(ui, "密码", &mut self.password);
-        ui.label("收到的密文");
-        ui.add_space(5.0);
-        ui.add_sized(
-            [ui.available_width(), 125.0],
-            egui::TextEdit::multiline(&mut self.token).hint_text("粘贴 MX1. 开头的整段内容"),
-        );
-        ui.add_space(18.0);
-        if ui
-            .add_sized([ui.available_width(), 42.0], egui::Button::new("解密"))
-            .clicked()
-        {
-            self.error.clear();
-            self.notice.clear();
-            if self.password.is_empty() {
-                self.error = "密码不能为空。".into();
-            } else if self.token.trim().is_empty() {
-                self.error = "请先粘贴收到的密文。".into();
-            } else {
-                match decrypt(&self.password, &self.token) {
-                    Ok(message) => {
-                        self.message = message;
-                        self.notice = "解密成功。".into();
-                    }
-                    Err(error) => self.error = error,
-                }
-            }
-        }
-        if !self.message.is_empty() {
-            ui.add_space(18.0);
-            ui.label("原文");
-            ui.add_space(5.0);
-            ui.add(egui::TextEdit::multiline(&mut self.message).desired_rows(4));
-            if ui.button("复制原文").clicked() {
-                let message = self.message.clone();
-                self.copy(&message);
-            }
-        }
-        self.feedback(ui);
-    }
 }
 
-impl eframe::App for SecretMessageApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        ui.set_max_width(560.0);
-        ui.add_space(24.0);
-        if self.screen != Screen::Home && ui.button("‹ 返回首页").clicked() {
-            self.reset();
+fn identity_path() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|p| p.join("mixin").join("identity.pem"))
+}
+fn load_identity() -> Option<(String, String)> {
+    let private = fs::read_to_string(identity_path()?).ok()?;
+    Some((private.clone(), public_from_private(&private).ok()?))
+}
+fn save_identity(private: &str) {
+    if let Some(path) = identity_path() {
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
         }
-        match self.screen {
-            Screen::Home => self.home(ui),
-            Screen::Encrypt => self.encrypt_screen(ui),
-            Screen::Decrypt => self.decrypt_screen(ui),
+        if !path.exists() {
+            let _ = fs::write(&path, private);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+            }
         }
     }
 }
-
+fn qr(ui: &mut egui::Ui, value: &str) {
+    if let Ok(code) = QrCode::new(value.as_bytes()) {
+        let scale = 4.0;
+        let side = code.width() as f32 * scale;
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
+        let painter = ui.painter_at(rect);
+        for y in 0..code.width() {
+            for x in 0..code.width() {
+                if code[(x, y)] == Color::Dark {
+                    painter.rect_filled(
+                        egui::Rect::from_min_size(
+                            rect.min + egui::vec2(x as f32 * scale, y as f32 * scale),
+                            egui::vec2(scale, scale),
+                        ),
+                        0.0,
+                        egui::Color32::from_rgb(25, 30, 28),
+                    );
+                }
+            }
+        }
+    }
+}
 fn main() -> eframe::Result {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([620.0, 650.0])
-            .with_min_inner_size([480.0, 520.0]),
-        ..Default::default()
-    };
     eframe::run_native(
         "密信",
-        options,
-        Box::new(|_creation_context| Ok(Box::new(SecretMessageApp::default()))),
+        eframe::NativeOptions::default(),
+        Box::new(|cc| {
+            configure_chinese_font(&cc.egui_ctx);
+            Ok(Box::new(App::new()))
+        }),
     )
+}
+
+fn configure_chinese_font(ctx: &egui::Context) {
+    let candidates = [
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "C:/Windows/Fonts/msyh.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    ];
+    let Some(path) = candidates
+        .iter()
+        .find(|path| std::path::Path::new(path).is_file())
+    else {
+        return;
+    };
+    let Ok(bytes) = fs::read(path) else { return };
+    let mut fonts = egui::FontDefinitions::default();
+    fonts
+        .font_data
+        .insert("chinese".into(), egui::FontData::from_owned(bytes).into());
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .insert(0, "chinese".into());
+    }
+    ctx.set_fonts(fonts);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn identity_roundtrip() {
+        let (private, public) = generate_identity().unwrap();
+        let plain = "中文文件".as_bytes();
+        let token = encrypt_for(&public, plain).unwrap();
+        assert_eq!(decrypt_with(&private, &token).unwrap(), plain);
+    }
 }
