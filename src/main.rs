@@ -1,179 +1,224 @@
-//! 密信：双击打开，输入密码，加密/解密一句话。
-//! 两台电脑用同一个密码，就能传敏感信息。
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+//! 密信：在两台电脑之间传一句秘密。
 
 mod crypto;
 
 use crypto::{decrypt, encrypt};
-use std::io::{self, Write};
-use std::process::{Command, Stdio};
+use eframe::egui;
 
-fn main() {
-    setup_console();
-    println!();
-    println!("================================");
-    println!("            密  信");
-    println!("  两台电脑，同一个密码，传一句秘密");
-    println!("================================");
-    println!();
-    println!("  1. 加密  — 把话变成乱码，发给对方");
-    println!("  2. 解密  — 把收到的乱码还原");
-    println!();
+#[derive(Default, PartialEq)]
+enum Screen {
+    #[default]
+    Home,
+    Encrypt,
+    Decrypt,
+}
 
-    loop {
-        let choice = read_line("请输入 1 或 2：");
-        match choice.as_str() {
-            "1" => {
-                do_encrypt();
-                break;
+#[derive(Default)]
+struct SecretMessageApp {
+    screen: Screen,
+    password: String,
+    password_confirmation: String,
+    message: String,
+    token: String,
+    error: String,
+    notice: String,
+}
+
+impl SecretMessageApp {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn copy(&mut self, value: &str) {
+        match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(value)) {
+            Ok(()) => {
+                self.error.clear();
+                self.notice = "已复制到剪贴板，可以粘贴到聊天窗口。".into();
             }
-            "2" => {
-                do_decrypt();
-                break;
-            }
-            _ => println!("请输入数字 1 或 2。"),
+            Err(_) => self.error = "复制失败，请手动选中内容复制。".into(),
         }
     }
 
-    println!();
-    let _ = read_line("按回车退出");
-}
+    fn heading(ui: &mut egui::Ui, title: &str, description: &str) {
+        ui.heading(title);
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(description).color(egui::Color32::from_gray(110)));
+        ui.add_space(22.0);
+    }
 
-fn do_encrypt() {
-    println!();
-    println!("双方要记住同一个密码。");
-    println!("密码请当面说 / 打电话说，不要和乱码发在同一个聊天里。");
-    println!();
+    fn password_field(ui: &mut egui::Ui, label: &str, value: &mut String) {
+        ui.label(label);
+        ui.add_space(5.0);
+        ui.add_sized(
+            [ui.available_width(), 38.0],
+            egui::TextEdit::singleline(value)
+                .password(true)
+                .hint_text("输入双方约定的密码"),
+        );
+        ui.add_space(14.0);
+    }
 
-    let password = read_password_confirmed();
-    let plain = loop {
-        let s = read_line("要保密的话：");
-        if s.is_empty() {
-            println!("内容不能为空。");
-            continue;
+    fn feedback(&self, ui: &mut egui::Ui) {
+        if !self.error.is_empty() {
+            ui.add_space(12.0);
+            ui.colored_label(egui::Color32::from_rgb(180, 55, 45), &self.error);
+        } else if !self.notice.is_empty() {
+            ui.add_space(12.0);
+            ui.colored_label(egui::Color32::from_rgb(45, 125, 85), &self.notice);
         }
-        break s;
-    };
+    }
 
-    match encrypt(&password, &plain) {
-        Ok(token) => {
-            println!();
-            println!("—— 把下面整行发给对方 ——");
-            println!();
-            println!("{token}");
-            println!();
-            if copy_to_clipboard(&token) {
-                println!("已复制到剪贴板，去聊天窗口粘贴就行。");
+    fn home(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.add_space(32.0);
+            ui.label(egui::RichText::new("密信").size(38.0).strong());
+            ui.add_space(8.0);
+            ui.label("两台电脑，同一个密码，传一句秘密");
+            ui.add_space(38.0);
+            if ui
+                .add_sized([270.0, 48.0], egui::Button::new("加密一段话"))
+                .clicked()
+            {
+                self.screen = Screen::Encrypt;
+                self.error.clear();
+                self.notice.clear();
+            }
+            ui.add_space(12.0);
+            if ui
+                .add_sized([270.0, 48.0], egui::Button::new("解密收到的密文"))
+                .clicked()
+            {
+                self.screen = Screen::Decrypt;
+                self.error.clear();
+                self.notice.clear();
+            }
+            ui.add_space(42.0);
+            ui.label(
+                egui::RichText::new("密码请当面说或打电话说，不要和密文发在同一个聊天里。")
+                    .small()
+                    .color(egui::Color32::from_gray(115)),
+            );
+        });
+    }
+
+    fn encrypt_screen(&mut self, ui: &mut egui::Ui) {
+        Self::heading(ui, "加密", "把一句话变成可以安全发送的密文。");
+        Self::password_field(ui, "设一个密码", &mut self.password);
+        Self::password_field(ui, "确认密码", &mut self.password_confirmation);
+        ui.label("要保密的话");
+        ui.add_space(5.0);
+        ui.add_sized(
+            [ui.available_width(), 105.0],
+            egui::TextEdit::multiline(&mut self.message).hint_text("写下要传给对方的话"),
+        );
+        ui.add_space(18.0);
+        if ui
+            .add_sized([ui.available_width(), 42.0], egui::Button::new("生成密文"))
+            .clicked()
+        {
+            self.error.clear();
+            self.notice.clear();
+            if self.password.is_empty() {
+                self.error = "密码不能为空。".into();
+            } else if self.password != self.password_confirmation {
+                self.error = "两次输入的密码不一样。".into();
+            } else if self.message.trim().is_empty() {
+                self.error = "要保密的话不能为空。".into();
             } else {
-                println!("请手动选中上面那一行复制。");
+                match encrypt(&self.password, &self.message) {
+                    Ok(token) => {
+                        self.token = token;
+                        let token = self.token.clone();
+                        self.copy(&token);
+                    }
+                    Err(error) => self.error = error,
+                }
             }
         }
-        Err(e) => println!("加密失败：{e}"),
+        if !self.token.is_empty() {
+            ui.add_space(18.0);
+            ui.label("密文");
+            ui.add_space(5.0);
+            ui.add(egui::TextEdit::multiline(&mut self.token).desired_rows(3));
+            if ui.button("再次复制").clicked() {
+                let token = self.token.clone();
+                self.copy(&token);
+            }
+        }
+        self.feedback(ui);
+    }
+
+    fn decrypt_screen(&mut self, ui: &mut egui::Ui) {
+        Self::heading(ui, "解密", "粘贴对方发来的密文，查看原文。");
+        Self::password_field(ui, "密码", &mut self.password);
+        ui.label("收到的密文");
+        ui.add_space(5.0);
+        ui.add_sized(
+            [ui.available_width(), 125.0],
+            egui::TextEdit::multiline(&mut self.token).hint_text("粘贴 MX1. 开头的整段内容"),
+        );
+        ui.add_space(18.0);
+        if ui
+            .add_sized([ui.available_width(), 42.0], egui::Button::new("解密"))
+            .clicked()
+        {
+            self.error.clear();
+            self.notice.clear();
+            if self.password.is_empty() {
+                self.error = "密码不能为空。".into();
+            } else if self.token.trim().is_empty() {
+                self.error = "请先粘贴收到的密文。".into();
+            } else {
+                match decrypt(&self.password, &self.token) {
+                    Ok(message) => {
+                        self.message = message;
+                        self.notice = "解密成功。".into();
+                    }
+                    Err(error) => self.error = error,
+                }
+            }
+        }
+        if !self.message.is_empty() {
+            ui.add_space(18.0);
+            ui.label("原文");
+            ui.add_space(5.0);
+            ui.add(egui::TextEdit::multiline(&mut self.message).desired_rows(4));
+            if ui.button("复制原文").clicked() {
+                let message = self.message.clone();
+                self.copy(&message);
+            }
+        }
+        self.feedback(ui);
     }
 }
 
-fn do_decrypt() {
-    println!();
-    let password = read_password("密码：");
-    if password.is_empty() {
-        println!("密码不能为空。");
-        return;
-    }
-    let token = loop {
-        let s = read_line("把收到的乱码贴在这里：");
-        if s.is_empty() {
-            println!("乱码不能为空。");
-            continue;
+impl eframe::App for SecretMessageApp {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.set_max_width(560.0);
+        ui.add_space(24.0);
+        if self.screen != Screen::Home && ui.button("‹ 返回首页").clicked() {
+            self.reset();
         }
-        break s;
+        match self.screen {
+            Screen::Home => self.home(ui),
+            Screen::Encrypt => self.encrypt_screen(ui),
+            Screen::Decrypt => self.decrypt_screen(ui),
+        }
+    }
+}
+
+fn main() -> eframe::Result {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([620.0, 650.0])
+            .with_min_inner_size([480.0, 520.0]),
+        ..Default::default()
     };
-
-    match decrypt(&password, &token) {
-        Ok(plain) => {
-            println!();
-            println!("======= 原文 =======");
-            println!("{plain}");
-            println!("====================");
-        }
-        Err(e) => println!("{e}"),
-    }
-}
-
-fn read_password_confirmed() -> String {
-    loop {
-        let a = read_password("设一个密码：");
-        if a.is_empty() {
-            println!("密码不能为空。");
-            continue;
-        }
-        let b = read_password("再输一遍：");
-        if a == b {
-            return a;
-        }
-        println!("两次不一样，重新设。");
-    }
-}
-
-fn read_password(prompt: &str) -> String {
-    match rpassword::prompt_password(prompt) {
-        Ok(s) => s,
-        Err(_) => read_line(prompt),
-    }
-}
-
-fn read_line(prompt: &str) -> String {
-    print!("{prompt}");
-    let _ = io::stdout().flush();
-    let mut s = String::new();
-    if io::stdin().read_line(&mut s).is_err() {
-        return String::new();
-    }
-    s.trim().to_string()
-}
-
-fn copy_to_clipboard(text: &str) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        pipe_to("pbcopy", text.as_bytes())
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let mut utf16 = vec![0xFF, 0xFE];
-        for u in text.encode_utf16() {
-            utf16.extend_from_slice(&u.to_le_bytes());
-        }
-        pipe_to("clip", &utf16)
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        let _ = text;
-        false
-    }
-}
-
-fn pipe_to(cmd: &str, bytes: &[u8]) -> bool {
-    let mut child = match Command::new(cmd).stdin(Stdio::piped()).spawn() {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    if let Some(stdin) = child.stdin.as_mut() {
-        if stdin.write_all(bytes).is_err() {
-            return false;
-        }
-    }
-    child.wait().map(|s| s.success()).unwrap_or(false)
-}
-
-fn setup_console() {
-    #[cfg(windows)]
-    unsafe {
-        SetConsoleOutputCP(65001);
-        SetConsoleCP(65001);
-    }
-}
-
-#[cfg(windows)]
-#[link(name = "kernel32")]
-extern "system" {
-    fn SetConsoleOutputCP(code: u32) -> i32;
-    fn SetConsoleCP(code: u32) -> i32;
+    eframe::run_native(
+        "密信",
+        options,
+        Box::new(|_creation_context| Ok(Box::new(SecretMessageApp::default()))),
+    )
 }

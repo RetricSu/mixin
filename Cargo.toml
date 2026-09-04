@@ -10,7 +10,8 @@ aes-gcm = "0.10"
 sha2 = "0.10"
 rand = "0.8"
 base64 = "0.22"
-rpassword = "7"
+eframe = "0.35"
+arboard = "3"
 
 [profile.release]
 lto = true
