@@ -1,0 +1,238 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release Tag (e.g. v0.1.0)"
+        required: false
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS (${{ matrix.target }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: arm64
+          - target: x86_64-apple-darwin
+            arch: x86_64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cargo-bundle and create-dmg
+        run: |
+          cargo install cargo-bundle || true
+          brew install create-dmg || true
+
+      - name: Bundle macOS App
+        run: |
+          cargo bundle --release --target ${{ matrix.target }}
+
+      - name: Ad-hoc Code Sign App
+        run: |
+          codesign --force --deep --sign - "target/${{ matrix.target }}/release/bundle/osx/Mixin.app" || true
+
+      - name: Package macOS DMG & ZIP
+        run: |
+          mkdir -p artifacts
+          APP_DIR="target/${{ matrix.target }}/release/bundle/osx"
+
+          # 1. Create Zip Archive
+          ditto -c -k --keepParent "$APP_DIR/Mixin.app" "artifacts/Mixin-${{ matrix.target }}.zip"
+
+          # 2. Create DMG Installer
+          create-dmg \
+            --volname "Mixin" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 100 \
+            --icon "Mixin.app" 180 180 \
+            --app-drop-link 480 180 \
+            --hide-extension "Mixin.app" \
+            --no-internet-enable \
+            "artifacts/Mixin-${{ matrix.target }}.dmg" \
+            "$APP_DIR/Mixin.app" || true
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.target }}
+          path: artifacts/*
+
+  build-windows:
+    name: Build Windows (${{ matrix.target }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build Windows Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Windows ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "artifacts"
+          $packageDir = "artifacts/Mixin-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $packageDir
+
+          Copy-Item "target/${{ matrix.target }}/release/mixin.exe" -Destination "$packageDir/mixin.exe"
+          Copy-Item "dist/双击我.bat" -Destination "$packageDir/双击我.bat"
+          Copy-Item "dist/说明.txt" -Destination "$packageDir/说明.txt"
+          if (Test-Path "assets/icons/icon.ico") {
+            Copy-Item "assets/icons/icon.ico" -Destination "$packageDir/icon.ico"
+          }
+
+          Compress-Archive -Path "$packageDir/*" -DestinationPath "artifacts/Mixin-${{ matrix.target }}.zip" -Force
+          Remove-Item -Recurse -Force $packageDir
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.target }}
+          path: artifacts/*
+
+  build-linux:
+    name: Build Linux (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libglib2.0-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev pkg-config
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build Linux Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Bundle Debian Package (.deb)
+        run: |
+          cargo install cargo-bundle || true
+          cargo bundle --release --target ${{ matrix.target }} --format deb || true
+
+      - name: Package Linux tar.gz
+        run: |
+          mkdir -p artifacts
+          STAGE_DIR="artifacts/Mixin-${{ matrix.target }}"
+          mkdir -p "$STAGE_DIR"
+
+          cp "target/${{ matrix.target }}/release/mixin" "$STAGE_DIR/"
+          chmod +x "$STAGE_DIR/mixin"
+          cp "dist/install-linux.sh" "$STAGE_DIR/install.sh"
+          chmod +x "$STAGE_DIR/install.sh"
+          cp "assets/mixin.desktop" "$STAGE_DIR/"
+          cp "dist/说明.txt" "$STAGE_DIR/"
+          cp "README.md" "$STAGE_DIR/"
+          if [ -f "assets/icons/icon.png" ]; then
+            cp "assets/icons/icon.png" "$STAGE_DIR/"
+          fi
+
+          tar -czvf "artifacts/Mixin-${{ matrix.target }}.tar.gz" -C artifacts "Mixin-${{ matrix.target }}"
+          rm -rf "$STAGE_DIR"
+
+          # Include .deb if generated
+          find "target/${{ matrix.target }}/release/bundle/deb" -name "*.deb" -exec cp {} artifacts/ \; 2>/dev/null || true
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.target }}
+          path: artifacts/*
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded-artifacts
+
+      - name: Prepare Release Assets & Checksums
+        run: |
+          mkdir -p release-assets
+          find downloaded-artifacts -type f -exec cp {} release-assets/ \;
+
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+
+      - name: Determine Release Tag
+        id: vars
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: 密信 (Mixin) ${{ steps.vars.outputs.tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: release-assets/*

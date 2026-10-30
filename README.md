@@ -23,6 +23,33 @@
 - **联系人路径**：为每次传输生成 32 字节高强度随机对称密钥和 12 字节 Nonce，通过 RSA-OAEP-SHA256 包裹对称密钥，正文使用 AES-256-GCM 进行认证加密。不受 RSA 载荷大小限制，能安全传递大载荷与二进制文件。
 - **文件存储权限**：私钥文件仅写入应用数据目录，在 Unix 系统上强制设定为 `0o600`（仅当前用户可读写）。
 
+## 下载与安装
+
+密信提供跨平台官方编译安装包（支持 macOS、Windows、Linux 三大主流平台）：
+
+### 🍎 macOS
+- 前往 [Releases](https://github.com/RetricSu/mixin/releases) 页面下载对应芯片的安装包：
+  - Apple Silicon (M1/M2/M3/M4): `Mixin-aarch64-apple-darwin.dmg` 或 `.zip`
+  - Intel 处理器: `Mixin-x86_64-apple-darwin.dmg` 或 `.zip`
+- 打开 `.dmg` 文件后，直接将 **Mixin.app** 拖拽入 **Applications (应用程序)** 目录即可使用。
+
+### 🪟 Windows
+- 前往 [Releases](https://github.com/RetricSu/mixin/releases) 下载 `Mixin-x86_64-pc-windows-msvc.zip`。
+- 解压后双击 `双击我.bat` 或直接运行 `mixin.exe`。
+
+### 🐧 Linux
+- 前往 [Releases](https://github.com/RetricSu/mixin/releases) 下载 `Mixin-x86_64-unknown-linux-gnu.tar.gz` 或 `.deb` 包。
+- Debian / Ubuntu 用户可直接安装 deb 包：
+  ```sh
+  sudo dpkg -i mixin_*.deb
+  ```
+- 或解压 tar.gz 运行一键安装脚本：
+  ```sh
+  tar -zxvf Mixin-x86_64-unknown-linux-gnu.tar.gz
+  cd Mixin-x86_64-unknown-linux-gnu
+  ./install.sh
+  ```
+
 ## 编译与测试
 
 ```sh
