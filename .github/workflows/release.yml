@@ -73,7 +73,7 @@ jobs:
             --hide-extension "Mixin.app" \
             --no-internet-enable \
             "artifacts/Mixin-${{ matrix.target }}.dmg" \
-            "$APP_DIR/Mixin.app" || true
+            "$APP_DIR/" || true
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
