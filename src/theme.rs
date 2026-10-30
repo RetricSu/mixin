@@ -220,8 +220,12 @@ pub fn configure_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-pub fn card_frame(_t: &ThemeColors) -> Frame {
+pub fn card_frame(t: &ThemeColors) -> Frame {
     Frame::none()
+        .fill(t.bg_card)
+        .stroke(Stroke::new(1.0, t.border_card))
+        .rounding(8.0)
+        .inner_margin(Margin::same(12.0))
 }
 
 pub fn paper_frame(t: &ThemeColors) -> Frame {
@@ -238,12 +242,22 @@ pub fn paper_frame(t: &ThemeColors) -> Frame {
         })
 }
 
-pub fn highlighted_card_frame(t: &ThemeColors, _accent_color: Color32) -> Frame {
-    paper_frame(t)
+pub fn highlighted_card_frame(t: &ThemeColors, accent_color: Color32) -> Frame {
+    Frame::none()
+        .fill(t.bg_card)
+        .stroke(Stroke::new(1.2, accent_color))
+        .rounding(8.0)
+        .inner_margin(Margin::same(14.0))
+        .shadow(egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 2.0),
+            blur: 6.0,
+            spread: 0.0,
+            color: Color32::from_black_alpha(8),
+        })
 }
 
 pub fn section_heading(ui: &mut Ui, title: &str) {
-    ui.label(egui::RichText::new(title).size(14.0).strong());
+    ui.label(egui::RichText::new(title).size(13.5).strong());
     ui.add_space(4.0);
 }
 
@@ -251,7 +265,7 @@ pub fn primary_button<'a>(label: &'a str, t: &ThemeColors) -> egui::Button<'a> {
     egui::Button::new(egui::RichText::new(label).color(t.text_on_accent).strong())
         .fill(t.accent_emerald)
         .min_size(egui::vec2(112.0, 34.0))
-        .rounding(5.0)
+        .rounding(6.0)
 }
 
 pub fn focus_outline(ui: &Ui, response: &egui::Response, t: &ThemeColors) {
@@ -270,30 +284,38 @@ pub fn segmented_control<T: Copy + PartialEq>(
     options: &[(T, &str)],
     t: &ThemeColors,
 ) {
-    ui.horizontal(|ui| {
-        for (option, label) in options {
-            let selected = *value == *option;
-            let response = ui.add(
-                egui::Button::new(egui::RichText::new(*label).color(if selected {
-                    t.text_accent
-                } else {
-                    t.text_secondary
-                }))
-                .fill(if selected {
-                    t.bg_selection
-                } else {
-                    Color32::TRANSPARENT
-                })
-                .stroke(Stroke::NONE)
-                .rounding(6.0)
-                .min_size(egui::vec2(88.0, 32.0)),
-            );
-            focus_outline(ui, &response, t);
-            if response.clicked() {
-                *value = *option;
-            }
-        }
-    });
+    Frame::none()
+        .fill(t.bg_card_elevated)
+        .stroke(Stroke::new(1.0, t.border_card))
+        .rounding(7.0)
+        .inner_margin(Margin::same(2.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
+                for (option, label) in options {
+                    let selected = *value == *option;
+                    let response = ui.add(
+                        egui::Button::new(egui::RichText::new(*label).color(if selected {
+                            t.text_accent
+                        } else {
+                            t.text_secondary
+                        }))
+                        .fill(if selected {
+                            t.bg_selection
+                        } else {
+                            Color32::TRANSPARENT
+                        })
+                        .stroke(Stroke::NONE)
+                        .rounding(5.0)
+                        .min_size(egui::vec2(80.0, 28.0)),
+                    );
+                    focus_outline(ui, &response, t);
+                    if response.clicked() {
+                        *value = *option;
+                    }
+                }
+            });
+        });
 }
 
 pub fn well_frame(t: &ThemeColors) -> Frame {

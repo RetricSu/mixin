@@ -210,15 +210,15 @@ impl App {
     fn render_ui(&mut self, ctx: &egui::Context) {
         let t = self.theme();
         egui::SidePanel::left("navigation")
-            .exact_width(176.0)
+            .exact_width(164.0)
             .resizable(false)
             .frame(
                 egui::Frame::none()
                     .fill(t.bg_header)
                     .stroke(Stroke::NONE)
-                    .inner_margin(Margin::symmetric(14.0, 12.0)),
+                    .inner_margin(Margin::symmetric(14.0, 14.0)),
             )
-            .show_separator_line(false)
+            .show_separator_line(true)
             .show(ctx, |ui| self.render_header(ui));
 
         if self.toast.is_some() {
@@ -227,7 +227,7 @@ impl App {
                 .frame(
                     egui::Frame::none()
                         .fill(t.bg_canvas)
-                        .inner_margin(Margin::symmetric(24.0, 8.0)),
+                        .inner_margin(Margin::symmetric(20.0, 8.0)),
                 )
                 .show(ctx, |ui| self.render_toast(ui));
         }
@@ -235,10 +235,10 @@ impl App {
             .frame(
                 egui::Frame::none()
                     .fill(t.bg_canvas)
-                    .inner_margin(Margin::symmetric(24.0, 20.0)),
+                    .inner_margin(Margin::symmetric(20.0, 16.0)),
             )
             .show(ctx, |ui| {
-                let width = ui.available_width().min(720.0);
+                let width = ui.available_width().min(680.0);
                 let inset = ((ui.available_width() - width) / 2.0).max(0.0);
                 ui.horizontal_top(|ui| {
                     ui.add_space(inset);
@@ -249,8 +249,29 @@ impl App {
                             Tab::Receive => "接收密信",
                             Tab::Identity => "身份与联系人",
                         };
-                        ui.label(egui::RichText::new(title).size(20.0).strong());
-                        ui.add_space(16.0);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(title)
+                                    .size(18.0)
+                                    .strong()
+                                    .color(t.text_primary),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| match self.tab {
+                                    Tab::Send => {
+                                        theme::pill_badge(ui, "本地零知识", t.text_accent)
+                                    }
+                                    Tab::Receive => {
+                                        theme::pill_badge(ui, "安全隔离解密", t.text_muted)
+                                    }
+                                    Tab::Identity => {
+                                        theme::pill_badge(ui, "本机身份", t.accent_emerald)
+                                    }
+                                },
+                            );
+                        });
+                        ui.add_space(14.0);
                         match self.tab {
                             Tab::Send => self.render_send_tab(ui),
                             Tab::Receive => self.render_receive_tab(ui),
@@ -263,26 +284,32 @@ impl App {
 
     fn render_header(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
-        ui.add_space(8.0);
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::hover());
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
             let painter = ui.painter_at(rect);
-            let envelope = rect.shrink2(egui::vec2(2.0, 5.0));
-            painter.rect_stroke(envelope, 2.0, Stroke::new(1.4, t.text_secondary));
+            let envelope = rect.shrink2(egui::vec2(2.0, 4.0));
+            painter.rect_stroke(envelope, 2.0, Stroke::new(1.4, t.accent_emerald));
             painter.line_segment(
                 [envelope.left_top(), envelope.center()],
-                Stroke::new(1.4, t.text_secondary),
+                Stroke::new(1.4, t.accent_emerald),
             );
             painter.line_segment(
                 [envelope.right_top(), envelope.center()],
-                Stroke::new(1.4, t.text_secondary),
+                Stroke::new(1.4, t.accent_emerald),
             );
-            ui.label(egui::RichText::new("密信").size(22.0).strong());
+            ui.label(egui::RichText::new("密信").size(20.0).strong());
         });
-        ui.add_space(24.0);
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new("端到端安全传输")
+                .size(11.0)
+                .color(t.text_muted),
+        );
+        ui.add_space(18.0);
         self.render_tabs(ui);
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-            ui.add_space(20.0);
+            ui.add_space(14.0);
             let label = if self.dark_mode {
                 "切换浅色外观"
             } else {
@@ -290,8 +317,8 @@ impl App {
             };
             if ui
                 .add_sized(
-                    [ui.available_width(), 32.0],
-                    egui::Button::new(label).frame(false),
+                    [ui.available_width(), 28.0],
+                    egui::Button::new(egui::RichText::new(label).size(12.0)).frame(false),
                 )
                 .clicked()
             {
@@ -311,24 +338,29 @@ impl App {
         ] {
             let selected = self.tab == tab;
             let response = ui.add_sized(
-                [ui.available_width(), 34.0],
-                egui::Button::new(egui::RichText::new(title).size(14.0).color(if selected {
-                    t.text_on_accent
-                } else {
-                    t.text_secondary
-                }))
+                [ui.available_width(), 32.0],
+                egui::Button::new(
+                    egui::RichText::new(title)
+                        .size(13.5)
+                        .color(if selected {
+                            t.text_on_accent
+                        } else {
+                            t.text_secondary
+                        })
+                        .strong(),
+                )
                 .fill(if selected {
                     t.accent_emerald
                 } else {
                     Color32::TRANSPARENT
                 })
                 .stroke(Stroke::NONE)
-                .rounding(5.0),
+                .rounding(6.0),
             );
             theme::focus_outline(ui, &response, &t);
-            if response.hovered() {
+            if response.hovered() && !selected {
                 ui.painter()
-                    .rect_stroke(response.rect, 5.0, Stroke::new(1.0, t.border_card_light));
+                    .rect_filled(response.rect, 6.0, t.bg_card_hover);
             }
             if response.on_hover_text(detail).clicked() {
                 self.tab = tab;
@@ -377,23 +409,23 @@ impl App {
                 });
             return;
         }
-        let body_height = (ui.available_height() - 64.0).max(120.0);
+        let body_height = (ui.available_height() - 54.0).max(120.0);
         egui::ScrollArea::vertical()
             .id_salt("send_scroll")
             .max_height(body_height)
             .show(ui, |ui| {
                 self.render_payload_input(ui);
-                ui.add_space(16.0);
+                ui.add_space(14.0);
                 theme::section_heading(ui, "接收方式");
                 self.render_send_mode_selector(ui);
-                ui.add_space(12.0);
+                ui.add_space(10.0);
                 if self.send_mode == SendMode::Contact {
                     self.render_recipient_selector(ui);
                 } else {
                     self.render_password_input(ui);
                 }
             });
-        ui.add_space(12.0);
+        ui.add_space(10.0);
         let hint = self.send_blocker();
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -674,49 +706,52 @@ impl App {
 
     fn render_password_input(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
-        ui.columns(2, |cols| {
-            cols[0].label(
-                egui::RichText::new("解密口令")
-                    .size(12.0)
-                    .color(t.text_secondary),
-            );
-            cols[0].add(
-                egui::TextEdit::singleline(&mut self.send_password)
-                    .password(!self.send_show_password)
-                    .hint_text("设置口令")
-                    .desired_width(f32::INFINITY),
-            );
-            cols[1].label(
-                egui::RichText::new("确认口令")
-                    .size(12.0)
-                    .color(t.text_secondary),
-            );
-            cols[1].add(
-                egui::TextEdit::singleline(&mut self.send_confirm)
-                    .password(!self.send_show_password)
-                    .hint_text("再次输入")
-                    .desired_width(f32::INFINITY),
-            );
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.checkbox(&mut self.send_show_password, "显示口令");
-            if ui
-                .button("随机生成并复制")
-                .on_hover_text("生成随机口令，并同时填入确认栏")
-                .clicked()
-            {
-                let pwd = generate_memorable_password();
-                self.send_password = pwd.clone();
-                self.send_confirm = pwd.clone();
-                self.copy_text(ui.ctx(), pwd, "口令已生成并复制，请通过另一渠道告知对方");
-            }
-            if !self.send_confirm.is_empty() && self.send_password != self.send_confirm {
-                ui.label(
-                    egui::RichText::new("两次口令不一致")
+        theme::card_frame(&t).show(ui, |ui| {
+            ui.columns(2, |cols| {
+                cols[0].label(
+                    egui::RichText::new("解密口令")
                         .size(12.0)
-                        .color(t.accent_rose),
+                        .color(t.text_secondary),
                 );
-            }
+                cols[0].add(
+                    egui::TextEdit::singleline(&mut self.send_password)
+                        .password(!self.send_show_password)
+                        .hint_text("设置口令")
+                        .desired_width(f32::INFINITY),
+                );
+                cols[1].label(
+                    egui::RichText::new("确认口令")
+                        .size(12.0)
+                        .color(t.text_secondary),
+                );
+                cols[1].add(
+                    egui::TextEdit::singleline(&mut self.send_confirm)
+                        .password(!self.send_show_password)
+                        .hint_text("再次输入")
+                        .desired_width(f32::INFINITY),
+                );
+            });
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut self.send_show_password, "显示口令");
+                if ui
+                    .button("随机生成并复制")
+                    .on_hover_text("生成随机口令，并同时填入确认栏")
+                    .clicked()
+                {
+                    let pwd = generate_memorable_password();
+                    self.send_password = pwd.clone();
+                    self.send_confirm = pwd.clone();
+                    self.copy_text(ui.ctx(), pwd, "口令已生成并复制，请通过另一渠道告知对方");
+                }
+                if !self.send_confirm.is_empty() && self.send_password != self.send_confirm {
+                    ui.label(
+                        egui::RichText::new("两次口令不一致")
+                            .size(12.0)
+                            .color(t.accent_rose),
+                    );
+                }
+            });
         });
     }
 
@@ -1791,8 +1826,8 @@ fn save_identity(private: &str) {
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1040.0, 800.0])
-            .with_min_inner_size([740.0, 580.0])
+            .with_inner_size([780.0, 540.0])
+            .with_min_inner_size([720.0, 520.0])
             .with_title("密信 · 安全传递"),
         ..Default::default()
     };

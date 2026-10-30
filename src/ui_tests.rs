@@ -71,7 +71,7 @@ fn render(
 fn layouts_fit_native_window_sizes_in_both_themes() {
     let identity = generate_identity().unwrap();
     for dark in [false, true] {
-        for (width, height) in [(740.0, 580.0), (800.0, 640.0), (1040.0, 800.0)] {
+        for (width, height) in [(720.0, 520.0), (780.0, 540.0), (800.0, 640.0), (1040.0, 800.0)] {
             for state in [
                 "send",
                 "file",
