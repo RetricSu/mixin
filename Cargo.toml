@@ -5,6 +5,18 @@ edition = "2021"
 description = "密信：两台电脑之间传一句秘密"
 publish = false
 
+[package.metadata.bundle]
+name = "Mixin"
+identifier = "com.retric.mixin"
+icon = ["assets/icons/32x32.png", "assets/icons/128x128.png", "assets/icons/256x256.png", "assets/icons/512x512.png", "assets/icons/icon.icns", "assets/icons/icon.ico"]
+version = "0.1.0"
+copyright = "© 2025 RetricSu"
+category = "Utility"
+short_description = "两台电脑之间传一句秘密"
+long_description = "密信：给普通人用的桌面端对端安全传递工具"
+osx_minimum_system_version = "10.14"
+deb_depends = ["libgtk-3-0"]
+
 [dependencies]
 aes-gcm = "0.10"
 sha2 = "0.10"

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Mixin
+Name[zh_CN]=密信
+Comment=End-to-end encrypted secret and file transfer
+Comment[zh_CN]=两台电脑之间传一句秘密，安全传递敏感文字与文件
+Exec=mixin
+Icon=mixin
+Terminal=false
+Type=Application
+Categories=Utility;Security;
