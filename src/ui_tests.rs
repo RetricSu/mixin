@@ -86,6 +86,9 @@ fn layouts_fit_native_window_sizes_in_both_themes() {
                 "add-contact",
             ] {
                 let ctx = egui::Context::default();
+                if std::env::var("MIXIN_REVIEW_DIR").is_ok() {
+                    ctx.set_pixels_per_point(2.0);
+                }
                 theme::configure_fonts(&ctx);
                 theme::apply_theme(&ctx, dark);
                 let mut app = fixture(&identity);
@@ -275,7 +278,7 @@ fn export_mesh(
         };
         textures.push(serde_json::json!({"id": format!("{id:?}"), "size": delta.image.size(), "pos": delta.pos, "pixels": pixels}));
     }
-    let meshes: Vec<_> = ctx.tessellate(output.shapes, 1.0).into_iter().filter_map(|primitive| {
+    let meshes: Vec<_> = ctx.tessellate(output.shapes, ctx.pixels_per_point()).into_iter().filter_map(|primitive| {
         if let egui::epaint::Primitive::Mesh(mesh) = primitive.primitive {
             Some(serde_json::json!({"clip": [primitive.clip_rect.min.x, primitive.clip_rect.min.y, primitive.clip_rect.max.x, primitive.clip_rect.max.y],
                 "texture": format!("{:?}", mesh.texture_id), "indices": mesh.indices,
@@ -283,7 +286,7 @@ fn export_mesh(
         } else { None }
     }).collect();
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, serde_json::to_vec(&serde_json::json!({"width": width, "height": height, "textures": textures, "meshes": meshes})).unwrap()).unwrap();
+    fs::write(path, serde_json::to_vec(&serde_json::json!({"width": width, "height": height, "ppp": ctx.pixels_per_point(), "textures": textures, "meshes": meshes})).unwrap()).unwrap();
 }
 
 fn text_center(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
