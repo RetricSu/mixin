@@ -152,6 +152,11 @@ fn layouts_fit_native_window_sizes_in_both_themes() {
                 let output = render(&mut app, &ctx, width, height, vec![]);
                 if matches!(state, "send" | "file" | "contact" | "selected-file") {
                     text_center(&output, "生成密信");
+                    if state != "contact" {
+                        text_center(&output, "解密口令");
+                        text_center(&output, "确认口令");
+                        text_center(&output, "随机生成并复制");
+                    }
                 }
                 for shape in &output.shapes {
                     if let egui::Shape::Text(text) = &shape.shape {
@@ -340,6 +345,16 @@ fn generate_and_return_to_edit_preserves_draft() {
     assert!(app.generated_cipher.is_empty());
     assert_eq!(app.send_text, "保留这份草稿");
     assert_eq!(app.send_password, "test-passphrase");
+
+    // The paper toolbar remains interactive after returning from the result.
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    click(&mut app, &ctx, text_center(&output, "文件"));
+    assert!(app.payload_type == PayloadType::File);
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "选择文件");
+    click(&mut app, &ctx, text_center(&output, "文字"));
+    assert!(app.payload_type == PayloadType::Text);
+    assert_eq!(app.send_text, "保留这份草稿");
 }
 
 #[test]
@@ -360,14 +375,25 @@ fn theme_text_contrast_and_heading_colors() {
         (a.max(b) + 0.05) / (a.min(b) + 0.05)
     }
     for (dark, theme) in [(false, theme::LIGHT_THEME), (true, theme::DARK_THEME)] {
-        for text in [theme.text_primary, theme.text_secondary, theme.text_muted] {
+        for text in [
+            theme.text_primary,
+            theme.text_secondary,
+            theme.text_muted,
+            theme.text_accent,
+        ] {
             assert!(
-                [theme.bg_canvas, theme.bg_header, theme.bg_well]
-                    .into_iter()
-                    .all(|background| contrast(text, background) >= 4.5),
+                [
+                    theme.bg_canvas,
+                    theme.bg_header,
+                    theme.bg_well,
+                    theme.bg_card
+                ]
+                .into_iter()
+                .all(|background| contrast(text, background) >= 4.5),
                 "Insufficient text contrast: {text:?}, dark={dark}"
             );
         }
+        assert!(contrast(theme.text_accent, theme.bg_selection) >= 4.5);
         assert!(contrast(theme.text_on_accent, theme.accent_emerald) >= 4.5);
         let ctx = egui::Context::default();
         theme::apply_theme(&ctx, dark);

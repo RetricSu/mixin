@@ -1,5 +1,4 @@
-// Hallmark · native product UI · restrained green · persistent rail + single task canvas.
-// Pre-emit critique: philosophy 4, hierarchy 4, execution 4, specificity 4, restraint 5, variety 3.
+// Native memo-like workspace: quiet gray canvas, paper surfaces, soft green actions.
 #![allow(dead_code)]
 
 use eframe::egui::{self, Color32, Frame, Margin, Rounding, Stroke, Ui};
@@ -10,6 +9,7 @@ pub struct ThemeColors {
     pub bg_canvas: Color32,
     pub bg_selection: Color32,
     pub text_on_accent: Color32,
+    pub text_accent: Color32,
     pub bg_header: Color32,
     pub bg_card: Color32,
     pub bg_card_elevated: Color32,
@@ -38,6 +38,7 @@ pub const DARK_THEME: ThemeColors = ThemeColors {
     bg_canvas: Color32::from_rgb(25, 30, 29),
     bg_selection: Color32::from_rgb(39, 61, 52),
     text_on_accent: Color32::from_rgb(17, 42, 31),
+    text_accent: Color32::from_rgb(140, 207, 170),
     bg_header: Color32::from_rgb(21, 26, 25),
     bg_card: Color32::from_rgb(30, 36, 34),
     bg_card_elevated: Color32::from_rgb(36, 43, 40),
@@ -58,24 +59,25 @@ pub const DARK_THEME: ThemeColors = ThemeColors {
 };
 
 pub const LIGHT_THEME: ThemeColors = ThemeColors {
-    bg_canvas: Color32::from_rgb(251, 252, 250),
-    bg_selection: Color32::from_rgb(223, 237, 227),
-    text_on_accent: Color32::from_rgb(247, 252, 248),
-    bg_header: Color32::from_rgb(240, 244, 239),
-    bg_card: Color32::from_rgb(247, 249, 245),
-    bg_card_elevated: Color32::from_rgb(238, 243, 237),
-    bg_card_hover: Color32::from_rgb(227, 235, 226),
-    bg_well: Color32::from_rgb(245, 248, 243),
-    border_card: Color32::from_rgb(211, 220, 210),
-    border_card_light: Color32::from_rgb(160, 176, 161),
-    border_accent: Color32::from_rgb(36, 108, 78),
-    text_primary: Color32::from_rgb(32, 48, 38),
-    text_secondary: Color32::from_rgb(82, 102, 87),
-    text_muted: Color32::from_rgb(99, 114, 102),
-    accent_emerald: Color32::from_rgb(36, 108, 78),
-    accent_emerald_hover: Color32::from_rgb(29, 94, 65),
-    accent_emerald_active: Color32::from_rgb(26, 82, 57),
-    accent_sky: Color32::from_rgb(43, 106, 144),
+    bg_canvas: Color32::from_rgb(246, 248, 247),
+    bg_selection: Color32::from_rgb(222, 239, 229),
+    text_on_accent: Color32::from_rgb(22, 49, 35),
+    text_accent: Color32::from_rgb(41, 109, 74),
+    bg_header: Color32::from_rgb(246, 248, 247),
+    bg_card: Color32::from_rgb(253, 254, 253),
+    bg_card_elevated: Color32::from_rgb(239, 243, 240),
+    bg_card_hover: Color32::from_rgb(232, 239, 235),
+    bg_well: Color32::from_rgb(253, 254, 253),
+    border_card: Color32::from_rgb(226, 232, 228),
+    border_card_light: Color32::from_rgb(167, 181, 173),
+    border_accent: Color32::from_rgb(79, 141, 105),
+    text_primary: Color32::from_rgb(60, 68, 63),
+    text_secondary: Color32::from_rgb(91, 103, 96),
+    text_muted: Color32::from_rgb(105, 116, 109),
+    accent_emerald: Color32::from_rgb(113, 185, 145),
+    accent_emerald_hover: Color32::from_rgb(130, 197, 159),
+    accent_emerald_active: Color32::from_rgb(97, 168, 129),
+    accent_sky: Color32::from_rgb(62, 105, 142),
     accent_amber: Color32::from_rgb(145, 97, 22),
     accent_rose: Color32::from_rgb(179, 56, 62),
 };
@@ -130,12 +132,12 @@ pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
     visuals.widgets.inactive.bg_fill = t.bg_well;
     visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, t.border_card);
     visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, t.text_secondary);
-    visuals.widgets.inactive.rounding = Rounding::same(7.0);
+    visuals.widgets.inactive.rounding = Rounding::same(5.0);
 
     visuals.widgets.hovered.bg_fill = t.bg_card_hover;
     visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, t.border_card_light);
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, t.text_primary);
-    visuals.widgets.hovered.rounding = Rounding::same(7.0);
+    visuals.widgets.hovered.rounding = Rounding::same(5.0);
 
     visuals.widgets.active.bg_fill = t.accent_emerald_active;
     visuals.widgets.active.bg_stroke = Stroke::new(1.5, t.accent_emerald);
@@ -144,7 +146,7 @@ pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
     visuals.widgets.hovered.weak_bg_fill = t.bg_card_hover;
     visuals.widgets.inactive.weak_bg_fill = t.bg_well;
     visuals.widgets.noninteractive.weak_bg_fill = t.bg_canvas;
-    visuals.widgets.active.rounding = Rounding::same(7.0);
+    visuals.widgets.active.rounding = Rounding::same(5.0);
 
     visuals.selection.bg_fill = t.bg_selection;
     visuals.selection.stroke = Stroke::new(1.0, t.text_primary);
@@ -153,8 +155,8 @@ pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
     ctx.set_visuals(visuals);
 
     let mut style = (*ctx.style()).clone();
-    style.spacing.item_spacing = egui::vec2(8.0, 8.0);
-    style.spacing.button_padding = egui::vec2(12.0, 8.0);
+    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    style.spacing.button_padding = egui::vec2(10.0, 6.0);
     style.spacing.window_margin = Margin::symmetric(24.0, 16.0);
 
     use egui::{FontFamily, FontId, TextStyle};
@@ -183,7 +185,7 @@ pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
     ]
     .into();
 
-    style.spacing.interact_size.y = 34.0;
+    style.spacing.interact_size.y = 30.0;
     style.spacing.text_edit_width = 240.0;
     ctx.set_style(style);
 }
@@ -222,35 +224,42 @@ pub fn card_frame(_t: &ThemeColors) -> Frame {
     Frame::none()
 }
 
-pub fn highlighted_card_frame(t: &ThemeColors, _accent_color: Color32) -> Frame {
+pub fn paper_frame(t: &ThemeColors) -> Frame {
     Frame::none()
         .fill(t.bg_card)
         .stroke(Stroke::new(1.0, t.border_card))
-        .rounding(Rounding::same(10.0))
-        .inner_margin(Margin::same(20.0))
+        .rounding(8.0)
+        .inner_margin(Margin::same(14.0))
+        .shadow(egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 2.0),
+            blur: 8.0,
+            spread: 0.0,
+            color: Color32::from_black_alpha(8),
+        })
 }
 
-pub fn section_heading(ui: &mut Ui, number: &str, title: &str, t: &ThemeColors) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(number).size(12.0).color(t.text_muted));
-        ui.label(egui::RichText::new(title).size(16.0).strong());
-    });
-    ui.add_space(8.0);
+pub fn highlighted_card_frame(t: &ThemeColors, _accent_color: Color32) -> Frame {
+    paper_frame(t)
+}
+
+pub fn section_heading(ui: &mut Ui, title: &str) {
+    ui.label(egui::RichText::new(title).size(14.0).strong());
+    ui.add_space(4.0);
 }
 
 pub fn primary_button<'a>(label: &'a str, t: &ThemeColors) -> egui::Button<'a> {
     egui::Button::new(egui::RichText::new(label).color(t.text_on_accent).strong())
         .fill(t.accent_emerald)
-        .min_size(egui::vec2(128.0, 40.0))
-        .rounding(8.0)
+        .min_size(egui::vec2(112.0, 34.0))
+        .rounding(5.0)
 }
 
 pub fn focus_outline(ui: &Ui, response: &egui::Response, t: &ThemeColors) {
     if response.has_focus() {
         ui.painter().rect_stroke(
             response.rect.expand(2.0),
-            8.0,
-            Stroke::new(1.5, t.accent_emerald),
+            5.0,
+            Stroke::new(1.5, t.border_accent),
         );
     }
 }
@@ -266,7 +275,7 @@ pub fn segmented_control<T: Copy + PartialEq>(
             let selected = *value == *option;
             let response = ui.add(
                 egui::Button::new(egui::RichText::new(*label).color(if selected {
-                    t.accent_emerald
+                    t.text_accent
                 } else {
                     t.text_secondary
                 }))
@@ -275,14 +284,7 @@ pub fn segmented_control<T: Copy + PartialEq>(
                 } else {
                     Color32::TRANSPARENT
                 })
-                .stroke(Stroke::new(
-                    1.0,
-                    if selected {
-                        t.accent_emerald
-                    } else {
-                        t.border_card
-                    },
-                ))
+                .stroke(Stroke::NONE)
                 .rounding(6.0)
                 .min_size(egui::vec2(88.0, 32.0)),
             );

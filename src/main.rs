@@ -210,38 +210,32 @@ impl App {
     fn render_ui(&mut self, ctx: &egui::Context) {
         let t = self.theme();
         egui::SidePanel::left("navigation")
-            .exact_width(184.0)
+            .exact_width(176.0)
             .resizable(false)
             .frame(
                 egui::Frame::none()
                     .fill(t.bg_header)
-                    .inner_margin(Margin::symmetric(18.0, 12.0)),
+                    .stroke(Stroke::NONE)
+                    .inner_margin(Margin::symmetric(14.0, 12.0)),
             )
+            .show_separator_line(false)
             .show(ctx, |ui| self.render_header(ui));
 
-        egui::TopBottomPanel::bottom("feedback")
-            .show_separator_line(false)
-            .frame(
-                egui::Frame::none()
-                    .fill(t.bg_canvas)
-                    .inner_margin(Margin::symmetric(24.0, 8.0)),
-            )
-            .show(ctx, |ui| {
-                if self.toast.is_some() {
-                    self.render_toast(ui);
-                } else {
-                    ui.label(
-                        egui::RichText::new("密信仅负责加密与解密，请自行将生成的密信发送给对方。")
-                            .size(11.0)
-                            .color(t.text_muted),
-                    );
-                }
-            });
+        if self.toast.is_some() {
+            egui::TopBottomPanel::bottom("feedback")
+                .show_separator_line(false)
+                .frame(
+                    egui::Frame::none()
+                        .fill(t.bg_canvas)
+                        .inner_margin(Margin::symmetric(24.0, 8.0)),
+                )
+                .show(ctx, |ui| self.render_toast(ui));
+        }
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
                     .fill(t.bg_canvas)
-                    .inner_margin(Margin::symmetric(28.0, 28.0)),
+                    .inner_margin(Margin::symmetric(24.0, 20.0)),
             )
             .show(ctx, |ui| {
                 let width = ui.available_width().min(720.0);
@@ -250,21 +244,13 @@ impl App {
                     ui.add_space(inset);
                     ui.vertical(|ui| {
                         ui.set_width(width);
-                        let (title, description) = match self.tab {
-                            Tab::Send => ("发送密信", "把文字或文件加密，交给你信任的人。"),
-                            Tab::Receive => ("接收密信", "导入收到的密信，在本机解开。"),
-                            Tab::Identity => (
-                                "身份与联系人",
-                                "分享公开身份，让常用联系人无需口令给你发密信。",
-                            ),
+                        let title = match self.tab {
+                            Tab::Send => "发送密信",
+                            Tab::Receive => "接收密信",
+                            Tab::Identity => "身份与联系人",
                         };
-                        ui.label(egui::RichText::new(title).size(26.0).strong());
-                        ui.label(
-                            egui::RichText::new(description)
-                                .size(13.0)
-                                .color(t.text_secondary),
-                        );
-                        ui.add_space(24.0);
+                        ui.label(egui::RichText::new(title).size(20.0).strong());
+                        ui.add_space(16.0);
                         match self.tab {
                             Tab::Send => self.render_send_tab(ui),
                             Tab::Receive => self.render_receive_tab(ui),
@@ -277,30 +263,23 @@ impl App {
 
     fn render_header(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
-        ui.add_space(24.0);
+        ui.add_space(8.0);
         ui.horizontal(|ui| {
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::hover());
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::hover());
             let painter = ui.painter_at(rect);
-            painter.rect_filled(rect, Rounding::same(9.0), t.accent_emerald);
-            let envelope = rect.shrink(8.0);
-            painter.rect_stroke(envelope, 2.0, Stroke::new(1.4, t.text_on_accent));
+            let envelope = rect.shrink2(egui::vec2(2.0, 5.0));
+            painter.rect_stroke(envelope, 2.0, Stroke::new(1.4, t.text_secondary));
             painter.line_segment(
                 [envelope.left_top(), envelope.center()],
-                Stroke::new(1.4, t.text_on_accent),
+                Stroke::new(1.4, t.text_secondary),
             );
             painter.line_segment(
                 [envelope.right_top(), envelope.center()],
-                Stroke::new(1.4, t.text_on_accent),
+                Stroke::new(1.4, t.text_secondary),
             );
             ui.label(egui::RichText::new("密信").size(22.0).strong());
         });
-        ui.add_space(8.0);
-        ui.label(
-            egui::RichText::new("让秘密，安心抵达")
-                .size(12.0)
-                .color(t.text_secondary),
-        );
-        ui.add_space(36.0);
+        ui.add_space(24.0);
         self.render_tabs(ui);
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
             ui.add_space(20.0);
@@ -320,19 +299,6 @@ impl App {
                 save_theme_preference(self.dark_mode);
                 theme::apply_theme(ui.ctx(), self.dark_mode);
             }
-            ui.add_space(12.0);
-            ui.separator();
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new("在本机加密与解密")
-                    .size(11.5)
-                    .color(t.text_secondary),
-            );
-            ui.label(
-                egui::RichText::new("文字与文件 · 端对端保护")
-                    .size(11.0)
-                    .color(t.text_muted),
-            );
         });
     }
 
@@ -345,24 +311,24 @@ impl App {
         ] {
             let selected = self.tab == tab;
             let response = ui.add_sized(
-                [ui.available_width(), 40.0],
+                [ui.available_width(), 34.0],
                 egui::Button::new(egui::RichText::new(title).size(14.0).color(if selected {
-                    t.accent_emerald
+                    t.text_on_accent
                 } else {
                     t.text_secondary
                 }))
                 .fill(if selected {
-                    t.bg_selection
+                    t.accent_emerald
                 } else {
                     Color32::TRANSPARENT
                 })
                 .stroke(Stroke::NONE)
-                .rounding(8.0),
+                .rounding(5.0),
             );
             theme::focus_outline(ui, &response, &t);
             if response.hovered() {
                 ui.painter()
-                    .rect_stroke(response.rect, 8.0, Stroke::new(1.0, t.border_card_light));
+                    .rect_stroke(response.rect, 5.0, Stroke::new(1.0, t.border_card_light));
             }
             if response.on_hover_text(detail).clicked() {
                 self.tab = tab;
@@ -383,40 +349,19 @@ impl App {
         }
 
         let (border_color, tag) = match toast.kind {
-            ToastKind::Success => (t.accent_emerald, "成功"),
+            ToastKind::Success => (t.text_accent, "成功"),
             ToastKind::Info => (t.accent_sky, "提示"),
             ToastKind::Warning => (t.accent_amber, "注意"),
             ToastKind::Error => (t.accent_rose, "错误"),
         };
 
-        let mut dismiss = false;
-        egui::Frame::none()
-            .fill(t.bg_card_elevated)
-            .stroke(Stroke::new(1.5, border_color))
-            .rounding(Rounding::same(8.0))
-            .inner_margin(Margin::symmetric(16.0, 8.0))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    theme::pill_badge(ui, tag, border_color);
-                    ui.label(
-                        egui::RichText::new(&toast.message)
-                            .color(t.text_primary)
-                            .size(13.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button(egui::RichText::new("✕").size(11.0).color(t.text_muted))
-                            .clicked()
-                        {
-                            dismiss = true;
-                        }
-                    });
-                });
-            });
-        if dismiss {
-            self.toast = None;
-        }
-        ui.add_space(8.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new(tag).color(border_color).strong());
+            ui.label(egui::RichText::new(&toast.message).size(13.0));
+            if ui.small_button("关闭").clicked() {
+                self.toast = None;
+            }
+        });
     }
 
     // ========================================================
@@ -432,14 +377,14 @@ impl App {
                 });
             return;
         }
-        let body_height = (ui.available_height() - 84.0).max(120.0);
+        let body_height = (ui.available_height() - 64.0).max(120.0);
         egui::ScrollArea::vertical()
             .id_salt("send_scroll")
             .max_height(body_height)
             .show(ui, |ui| {
                 self.render_payload_input(ui);
                 ui.add_space(16.0);
-                theme::section_heading(ui, "02", "设置接收方式", &t);
+                theme::section_heading(ui, "接收方式");
                 self.render_send_mode_selector(ui);
                 ui.add_space(12.0);
                 if self.send_mode == SendMode::Contact {
@@ -449,21 +394,19 @@ impl App {
                 }
             });
         ui.add_space(12.0);
-        ui.separator();
-        ui.add_space(8.0);
         let hint = self.send_blocker();
-        ui.horizontal_wrapped(|ui| {
-            if ui
-                .add_enabled(hint.is_none(), theme::primary_button("生成密信", &t))
-                .clicked()
-            {
-                self.do_send();
-            }
-            ui.label(
-                egui::RichText::new(hint.unwrap_or("生成后，可复制文本或保存为文件分享"))
-                    .size(12.0)
-                    .color(t.text_secondary),
-            );
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add_enabled(hint.is_none(), theme::primary_button("生成密信", &t))
+                    .clicked()
+                {
+                    self.do_send();
+                }
+                if let Some(hint) = hint {
+                    ui.label(egui::RichText::new(hint).size(12.0).color(t.text_secondary));
+                }
+            });
         });
     }
 
@@ -502,15 +445,6 @@ impl App {
                 (SendMode::Contact, "发给联系人"),
             ],
             &t,
-        );
-        ui.add_space(6.0);
-        ui.label(
-            egui::RichText::new(match self.send_mode {
-                SendMode::Password => "对方输入你设置的口令，即可解开。适合临时传递。",
-                SendMode::Contact => "使用对方的公开身份加密，只有对应身份能解开，无需口令。",
-            })
-            .size(12.0)
-            .color(t.text_secondary),
         );
     }
 
@@ -560,7 +494,7 @@ impl App {
                             } else {
                                 Stroke::new(1.0, t.border_card_light)
                             })
-                            .rounding(Rounding::same(14.0));
+                            .rounding(Rounding::same(5.0));
 
                         if ui.add(chip).clicked() {
                             self.selected_contact_idx = if is_selected { None } else { Some(i) };
@@ -572,7 +506,7 @@ impl App {
                         egui::RichText::new("使用公开身份代码")
                             .size(12.5)
                             .color(if is_custom {
-                                t.accent_emerald
+                                t.text_accent
                             } else {
                                 t.text_muted
                             }),
@@ -583,7 +517,7 @@ impl App {
                         t.bg_well
                     })
                     .stroke(Stroke::new(1.0, t.border_card))
-                    .rounding(Rounding::same(14.0));
+                    .rounding(Rounding::same(5.0));
 
                     if ui.add(custom_chip).clicked() {
                         self.selected_contact_idx = None;
@@ -595,7 +529,6 @@ impl App {
             if let Some(idx) = self.selected_contact_idx {
                 if let Some(c) = self.contacts.get(idx) {
                     ui.horizontal(|ui| {
-                        theme::pill_badge(ui, &format!("已选：{}", c.name), t.accent_emerald);
                         ui.label(
                             egui::RichText::new(format!("指纹: {}", c.fingerprint))
                                 .size(12.0)
@@ -636,7 +569,7 @@ impl App {
                     match validate_public_key(&self.recipient_custom_key) {
                         Ok(fp) => {
                             ui.horizontal(|ui| {
-                                theme::pill_badge(ui, "有效公钥", t.accent_emerald);
+                                theme::pill_badge(ui, "有效公钥", t.text_accent);
                                 ui.label(
                                     egui::RichText::new(format!("公钥指纹: {fp}"))
                                         .size(12.0)
@@ -659,58 +592,26 @@ impl App {
 
     fn render_payload_input(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
-        theme::section_heading(ui, "01", "准备内容", &t);
-        ui.horizontal_wrapped(|ui| {
-            let mut kind = self.payload_type;
-            theme::segmented_control(
-                ui,
-                &mut kind,
-                &[(PayloadType::Text, "文字"), (PayloadType::File, "文件")],
-                &t,
-            );
-            if kind == PayloadType::Text && self.payload_type != kind {
-                self.send_file = None;
-                self.payload_type = kind;
-            } else if kind == PayloadType::File {
-                self.payload_type = kind;
-            }
-            if self.payload_type == PayloadType::Text {
-                if ui.button("粘贴").clicked() {
-                    if let Ok(mut cb) = arboard::Clipboard::new() {
-                        if let Ok(text) = cb.get_text() {
-                            self.send_text.push_str(&text);
-                        }
-                    }
-                }
-                if !self.send_text.is_empty() && ui.button("清空").clicked() {
-                    self.send_text.clear();
-                }
-            }
-        });
-        ui.add_space(10.0);
-        if self.payload_type == PayloadType::File {
-            theme::well_frame(&t).show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.add_space(8.0);
+        theme::paper_frame(&t).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            if self.payload_type == PayloadType::File {
                 if let Some(file) = &self.send_file {
                     let name = if file.extension.is_empty() {
                         file.name.clone()
                     } else {
                         format!("{}.{}", file.name, file.extension)
                     };
-                    ui.label(egui::RichText::new(name).size(15.0).strong());
+                    ui.add(egui::Label::new(egui::RichText::new(&name).strong()).truncate())
+                        .on_hover_text(&name);
                     ui.label(
-                        egui::RichText::new(format_file_size(file.size)).color(t.text_secondary),
+                        egui::RichText::new(format_file_size(file.size))
+                            .size(12.0)
+                            .color(t.text_muted),
                     );
                 } else {
-                    ui.label(egui::RichText::new("将文件拖到窗口，或点击选择").size(15.0));
-                    ui.label(
-                        egui::RichText::new("支持文档、图片、压缩包等任意文件")
-                            .size(12.0)
-                            .color(t.text_secondary),
-                    );
+                    ui.label(egui::RichText::new("拖入需要加密的文件").color(t.text_muted));
                 }
-                ui.add_space(8.0);
+                ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     if ui
                         .button(if self.send_file.is_some() {
@@ -728,22 +629,47 @@ impl App {
                         self.send_file = None;
                     }
                 });
-                ui.add_space(8.0);
+            } else {
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.send_text)
+                        .hint_text("写下或粘贴需要保密的内容…")
+                        .frame(false)
+                        .desired_rows(4)
+                        .margin(egui::vec2(0.0, 4.0))
+                        .desired_width(f32::INFINITY),
+                );
+            }
+            ui.add_space(10.0);
+            ui.horizontal_wrapped(|ui| {
+                let mut kind = self.payload_type;
+                theme::segmented_control(
+                    ui,
+                    &mut kind,
+                    &[(PayloadType::Text, "文字"), (PayloadType::File, "文件")],
+                    &t,
+                );
+                if kind != self.payload_type {
+                    if kind == PayloadType::Text {
+                        self.send_file = None;
+                    }
+                    self.payload_type = kind;
+                }
+                if self.payload_type == PayloadType::Text {
+                    if ui.add(egui::Button::new("粘贴").frame(false)).clicked() {
+                        if let Ok(mut cb) = arboard::Clipboard::new() {
+                            if let Ok(text) = cb.get_text() {
+                                self.send_text.push_str(&text);
+                            }
+                        }
+                    }
+                    if !self.send_text.is_empty()
+                        && ui.add(egui::Button::new("清空").frame(false)).clicked()
+                    {
+                        self.send_text.clear();
+                    }
+                }
             });
-        } else {
-            ui.add(
-                egui::TextEdit::multiline(&mut self.send_text)
-                    .hint_text("写下或粘贴需要保密的内容…")
-                    .desired_rows(4)
-                    .margin(egui::vec2(14.0, 12.0))
-                    .desired_width(f32::INFINITY),
-            );
-            ui.label(
-                egui::RichText::new(format!("{} 字", self.send_text.chars().count()))
-                    .size(11.5)
-                    .color(t.text_muted),
-            );
-        }
+        });
     }
 
     fn render_password_input(&mut self, ui: &mut egui::Ui) {
@@ -784,20 +710,11 @@ impl App {
                 self.send_confirm = pwd.clone();
                 self.copy_text(ui.ctx(), pwd, "口令已生成并复制，请通过另一渠道告知对方");
             }
-            if !self.send_confirm.is_empty() {
-                let matches = self.send_password == self.send_confirm;
+            if !self.send_confirm.is_empty() && self.send_password != self.send_confirm {
                 ui.label(
-                    egui::RichText::new(if matches {
-                        "口令一致"
-                    } else {
-                        "两次口令不一致"
-                    })
-                    .size(12.0)
-                    .color(if matches {
-                        t.accent_emerald
-                    } else {
-                        t.accent_rose
-                    }),
+                    egui::RichText::new("两次口令不一致")
+                        .size(12.0)
+                        .color(t.accent_rose),
                 );
             }
         });
@@ -810,7 +727,7 @@ impl App {
                 ui.label(
                     egui::RichText::new("密信已生成")
                         .size(15.0)
-                        .color(t.accent_emerald)
+                        .color(t.text_accent)
                         .strong(),
                 );
                 if let Some(summary) = &self.generated_summary {
@@ -820,9 +737,10 @@ impl App {
             ui.add_space(6.0);
 
             ui.label(
-                egui::RichText::new(
-                    "复制密信文本，或保存为 .mixin 文件，再通过你常用的聊天工具发送给对方。",
-                )
+                egui::RichText::new(match self.send_mode {
+                    SendMode::Password => "将密信发给对方，口令请通过另一渠道告知。",
+                    SendMode::Contact => "将密信发给对方，只有对方的身份能解开。",
+                })
                 .color(t.text_secondary),
             );
             ui.add_space(16.0);
@@ -891,23 +809,7 @@ impl App {
                 }
             });
 
-            ui.add_space(16.0);
-            if self.send_mode == SendMode::Password {
-                ui.label(
-                    egui::RichText::new(
-                        "请分开传递密信与口令，例如用聊天工具发密信，电话告知口令。",
-                    )
-                    .size(12.0)
-                    .color(t.text_secondary),
-                );
-            } else {
-                ui.label(
-                    egui::RichText::new("对方需使用对应的本机身份，在“接收密信”中解密。")
-                        .size(12.0)
-                        .color(t.text_secondary),
-                );
-            }
-            ui.add_space(16.0);
+            ui.add_space(12.0);
             ui.collapsing("查看加密文本", |ui| {
                 egui::ScrollArea::vertical()
                     .max_height(140.0)
@@ -1029,25 +931,29 @@ impl App {
     fn render_receive_tab(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
         egui::ScrollArea::vertical().id_salt("receive_scroll").show(ui, |ui| {
-            // Input card
-            theme::card_frame(&t).show(ui, |ui| {
+            theme::paper_frame(&t).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                let input_response = ui.add(
+                    egui::TextEdit::multiline(&mut self.receive_input)
+                        .hint_text("在此粘贴完整密信文本，或拖入 .mixin 文件…")
+                        .font(egui::TextStyle::Monospace)
+                        .frame(false)
+                        .margin(egui::vec2(0.0, 4.0))
+                        .desired_rows(4)
+                        .desired_width(f32::INFINITY),
+                );
+                if input_response.changed() { self.decrypted = None; }
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("01  导入密信")
-                            .size(14.0)
-                            .color(t.text_primary)
-                            .strong(),
-                    );
-
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if !self.receive_input.is_empty()
-                            && ui.button(egui::RichText::new("清空").size(12.0)).clicked()
+                            && ui.add(egui::Button::new(egui::RichText::new("清空").size(12.0)).frame(false)).clicked()
                         {
                             self.receive_input.clear();
                             self.decrypted = None;
                         }
 
-                        if ui.button(egui::RichText::new("打开文件").size(12.0)).clicked() {
+                        if ui.add(egui::Button::new(egui::RichText::new("打开文件").size(12.0)).frame(false)).clicked() {
                             if let Some(path) = rfd::FileDialog::new()
                                 .add_filter("密信文件", &["mixin", "txt"])
                                 .pick_file()
@@ -1060,7 +966,7 @@ impl App {
                             }
                         }
 
-                        if ui.button(egui::RichText::new("粘贴密信").size(12.0)).clicked() {
+                        if ui.add(egui::Button::new(egui::RichText::new("粘贴密信").size(12.0)).frame(false)).clicked() {
                             if let Ok(mut cb) = arboard::Clipboard::new() {
                                 if let Ok(t_str) = cb.get_text() {
                                     self.receive_input = t_str.trim().to_string();
@@ -1071,28 +977,16 @@ impl App {
                         }
                     });
                 });
-                ui.add_space(8.0);
-
-                let input_response = ui.add(
-                    egui::TextEdit::multiline(&mut self.receive_input)
-                        .hint_text("在此粘贴完整密信文本，或拖入 .mixin 文件…")
-                        .font(egui::TextStyle::Monospace)
-                        .desired_rows(5)
-                        .desired_width(f32::INFINITY),
-                );
-                if input_response.changed() { self.decrypted = None; }
             });
             ui.add_space(12.0);
 
             // Auto-detect mode & decryption trigger
             let trimmed = self.receive_input.trim();
-            if trimmed.is_empty() {
-                self.render_receive_help(ui);
-            } else if trimmed.starts_with(IDENTITY_PREFIX) {
+            if trimmed.starts_with(IDENTITY_PREFIX) {
                 self.render_identity_decrypt_card(ui);
             } else if trimmed.starts_with(PREFIX) {
                 self.render_password_decrypt_card(ui);
-            } else {
+            } else if !trimmed.is_empty() {
                 theme::card_frame(&t).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(
@@ -1118,29 +1012,13 @@ impl App {
         });
     }
 
-    fn render_receive_help(&mut self, ui: &mut egui::Ui) {
-        let t = self.theme();
-        ui.add_space(20.0);
-        ui.label(egui::RichText::new("等待一封密信").size(18.0).strong());
-        ui.label(egui::RichText::new("粘贴密信文本，或将收到的 .mixin 文件拖到窗口。\n密信会自动识别接收方式，再提示你解密。").color(t.text_secondary));
-    }
-
     fn render_identity_decrypt_card(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
         theme::card_frame(&t).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                theme::pill_badge(ui, "专属密信", t.text_secondary);
-                ui.label(
-                    egui::RichText::new("这是一封专属密信")
-                        .size(13.0)
-                        .color(t.text_primary),
-                );
-            });
-            ui.add_space(6.0);
             ui.label(
-                egui::RichText::new("无需口令。请使用接收方对应的本机身份解密。")
+                egui::RichText::new("专属密信，使用接收方的本机身份解密。")
                     .size(12.0)
-                    .color(t.text_muted),
+                    .color(t.text_secondary),
             );
             ui.add_space(8.0);
 
@@ -1167,7 +1045,6 @@ impl App {
         let t = self.theme();
         theme::card_frame(&t).show(ui, |ui| {
             ui.horizontal(|ui| {
-                theme::pill_badge(ui, "口令密信", t.text_secondary);
                 ui.label(
                     egui::RichText::new("输入发送方告知的口令")
                         .size(13.0)
@@ -1227,7 +1104,7 @@ impl App {
                     ui.label(
                         egui::RichText::new("已解密 · 文字")
                             .size(15.0)
-                            .color(t.accent_emerald)
+                            .color(t.text_accent)
                             .strong(),
                     );
                     ui.label(
@@ -1260,13 +1137,11 @@ impl App {
                 });
                 ui.add_space(8.0);
 
-                theme::well_frame(&t).show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut plain_text.as_str())
-                            .desired_rows(6)
-                            .desired_width(f32::INFINITY),
-                    );
-                });
+                ui.add(
+                    egui::TextEdit::multiline(&mut plain_text.as_str())
+                        .desired_rows(6)
+                        .desired_width(f32::INFINITY),
+                );
             }
             DecryptedContent::File {
                 meta,
@@ -1283,7 +1158,7 @@ impl App {
                     ui.label(
                         egui::RichText::new("已解密 · 文件")
                             .size(15.0)
-                            .color(t.accent_emerald)
+                            .color(t.text_accent)
                             .strong(),
                     );
                     ui.label(
@@ -1294,89 +1169,63 @@ impl App {
                 });
                 ui.add_space(8.0);
 
-                theme::well_frame(&t).show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        let (icon_rect, _) =
-                            ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::hover());
-                        let painter = ui.painter_at(icon_rect);
-                        painter.rect_filled(icon_rect, Rounding::same(6.0), t.bg_card_elevated);
-                        painter.text(
-                            icon_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "文",
-                            egui::FontId::new(22.0, egui::FontFamily::Proportional),
-                            t.text_on_accent,
-                        );
-
-                        ui.vertical(|ui| {
-                            ui.label(
-                                egui::RichText::new(&full_filename)
-                                    .size(14.5)
-                                    .color(t.text_primary)
-                                    .strong(),
-                            );
-                            if let Some(path) = &saved_path {
-                                ui.label(
-                                    egui::RichText::new(format!("✓ 已保存至：{}", path.display()))
-                                        .size(11.5)
-                                        .color(t.accent_emerald),
+                ui.add(
+                    egui::Label::new(egui::RichText::new(&full_filename).size(14.0).strong())
+                        .truncate(),
+                )
+                .on_hover_text(&full_filename);
+                if let Some(path) = &saved_path {
+                    ui.label(
+                        egui::RichText::new(format!("已保存至：{}", path.display()))
+                            .size(11.5)
+                            .color(t.text_accent),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new("尚未保存到电脑")
+                            .size(11.5)
+                            .color(t.text_muted),
+                    );
+                }
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("保存文件")
+                                .size(13.0)
+                                .color(t.text_on_accent)
+                                .strong(),
+                        )
+                        .fill(t.accent_emerald)
+                        .min_size(egui::vec2(130.0, 34.0))
+                        .rounding(Rounding::same(8.0)),
+                    )
+                    .clicked()
+                {
+                    if let Some(dest) = rfd::FileDialog::new()
+                        .set_file_name(&full_filename)
+                        .save_file()
+                    {
+                        match fs::write(&dest, &bytes) {
+                            Ok(_) => {
+                                self.notify(
+                                    format!(
+                                        "已保存至：{}",
+                                        dest.file_name().unwrap_or_default().to_string_lossy()
+                                    ),
+                                    ToastKind::Success,
                                 );
-                            } else {
-                                ui.label(
-                                    egui::RichText::new(
-                                        "文件已安全解开在内存中，点击右侧保存到电脑",
-                                    )
-                                    .size(11.5)
-                                    .color(t.text_muted),
-                                );
+                                self.decrypted = Some(DecryptedContent::File {
+                                    meta: meta.clone(),
+                                    bytes: bytes.clone(),
+                                    saved_path: Some(dest),
+                                });
                             }
-                        });
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new("保存文件")
-                                            .size(13.0)
-                                            .color(t.text_on_accent)
-                                            .strong(),
-                                    )
-                                    .fill(t.accent_emerald)
-                                    .min_size(egui::vec2(130.0, 34.0))
-                                    .rounding(Rounding::same(8.0)),
-                                )
-                                .clicked()
-                            {
-                                if let Some(dest) = rfd::FileDialog::new()
-                                    .set_file_name(&full_filename)
-                                    .save_file()
-                                {
-                                    match fs::write(&dest, &bytes) {
-                                        Ok(_) => {
-                                            self.notify(
-                                                format!(
-                                                    "已保存至：{}",
-                                                    dest.file_name()
-                                                        .unwrap_or_default()
-                                                        .to_string_lossy()
-                                                ),
-                                                ToastKind::Success,
-                                            );
-                                            self.decrypted = Some(DecryptedContent::File {
-                                                meta: meta.clone(),
-                                                bytes: bytes.clone(),
-                                                saved_path: Some(dest),
-                                            });
-                                        }
-                                        Err(e) => {
-                                            self.notify(format!("保存失败：{e}"), ToastKind::Error);
-                                        }
-                                    }
-                                }
+                            Err(e) => {
+                                self.notify(format!("保存失败：{e}"), ToastKind::Error);
                             }
-                        });
-                    });
-                });
+                        }
+                    }
+                }
             }
         });
     }
@@ -1465,11 +1314,6 @@ impl App {
                         .color(t.text_primary)
                         .strong(),
                 );
-                ui.label(
-                    egui::RichText::new("可分享给联系人")
-                        .size(11.5)
-                        .color(t.text_muted),
-                );
             });
             ui.add_space(8.0);
 
@@ -1477,7 +1321,7 @@ impl App {
                 // Left side: information & actions
                 cols[0].vertical(|ui| {
                     ui.label(
-                        egui::RichText::new("把公开身份发给对方，对方就能给你发送无需口令的专属密信。")
+                        egui::RichText::new("分享给对方，即可接收无需口令的密信。")
                             .size(12.0)
                             .color(t.text_secondary),
                     );
@@ -1490,7 +1334,7 @@ impl App {
                             ui.label(
                                 egui::RichText::new(&self.my_fingerprint)
                                     .size(14.0)
-                                    .color(t.accent_emerald)
+                                    .color(t.text_accent)
                                     .strong()
                                     .monospace(),
                             );
@@ -1716,7 +1560,7 @@ impl App {
                         ui.label(
                             egui::RichText::new(format!("✓ 公钥指纹: {fp}"))
                                 .size(11.5)
-                                .color(t.accent_emerald),
+                                .color(t.text_accent),
                         );
                     }
 
@@ -1782,80 +1626,70 @@ impl App {
                 let mut delete_idx = None;
                 let contacts = self.contacts.clone();
                 for (i, contact) in contacts.iter().enumerate() {
-                    theme::well_frame(&t).show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            let (avatar_rect, _) = ui
-                                .allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::hover());
-                            let painter = ui.painter_at(avatar_rect);
-                            painter.rect_filled(
-                                avatar_rect,
-                                Rounding::same(16.0),
-                                t.bg_card_elevated,
-                            );
-                            let initial = contact.name.chars().next().unwrap_or('?').to_string();
-                            painter.text(
-                                avatar_rect.center(),
-                                egui::Align2::CENTER_CENTER,
-                                initial,
-                                egui::FontId::new(14.0, egui::FontFamily::Proportional),
-                                t.text_primary,
-                            );
-
-                            ui.vertical(|ui| {
-                                ui.label(
-                                    egui::RichText::new(&contact.name)
-                                        .size(14.0)
-                                        .color(t.text_primary)
-                                        .strong(),
-                                );
-                                ui.label(
-                                    egui::RichText::new(format!("指纹: {}", contact.fingerprint))
+                    egui::Frame::none()
+                        .inner_margin(Margin::symmetric(0.0, 8.0))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(&contact.name)
+                                            .size(14.0)
+                                            .color(t.text_primary)
+                                            .strong(),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "指纹: {}",
+                                            contact.fingerprint
+                                        ))
                                         .size(11.5)
                                         .color(t.text_muted),
-                                );
+                                    );
+                                });
+                            });
+                            ui.horizontal_wrapped(|ui| {
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new("发送密信")
+                                                .size(12.0)
+                                                .color(t.text_on_accent),
+                                        )
+                                        .fill(t.accent_emerald)
+                                        .rounding(Rounding::same(6.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    self.tab = Tab::Send;
+                                    self.generated_cipher.clear();
+                                    self.generated_summary = None;
+                                    self.send_mode = SendMode::Contact;
+                                    self.selected_contact_idx = Some(i);
+                                    self.notify(
+                                        format!("已选择发信给：{}", contact.name),
+                                        ToastKind::Success,
+                                    );
+                                }
+                                if ui
+                                    .button(egui::RichText::new("复制公开身份").size(11.5))
+                                    .clicked()
+                                {
+                                    self.copy_text(
+                                        ui.ctx(),
+                                        contact.public_key.clone(),
+                                        "联系人公钥已复制！",
+                                    );
+                                }
+                                if ui
+                                    .button(
+                                        egui::RichText::new("删除").size(12.0).color(t.accent_rose),
+                                    )
+                                    .clicked()
+                                {
+                                    delete_idx = Some(i);
+                                }
                             });
                         });
-                        ui.horizontal_wrapped(|ui| {
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new("发送密信")
-                                            .size(12.0)
-                                            .color(t.text_on_accent),
-                                    )
-                                    .fill(t.accent_emerald)
-                                    .rounding(Rounding::same(6.0)),
-                                )
-                                .clicked()
-                            {
-                                self.tab = Tab::Send;
-                                self.generated_cipher.clear();
-                                self.generated_summary = None;
-                                self.send_mode = SendMode::Contact;
-                                self.selected_contact_idx = Some(i);
-                                self.notify(
-                                    format!("已选择发信给：{}", contact.name),
-                                    ToastKind::Success,
-                                );
-                            }
-                            if ui
-                                .button(egui::RichText::new("复制公开身份").size(11.5))
-                                .clicked()
-                            {
-                                self.copy_text(
-                                    ui.ctx(),
-                                    contact.public_key.clone(),
-                                    "联系人公钥已复制！",
-                                );
-                            }
-                            if ui
-                                .button(egui::RichText::new("删除").size(12.0).color(t.accent_rose))
-                                .clicked()
-                            {
-                                delete_idx = Some(i);
-                            }
-                        });
-                    });
                     ui.add_space(4.0);
                 }
 
