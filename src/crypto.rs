@@ -134,6 +134,51 @@ pub fn decrypt_with(private_pem: &str, token: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "解密失败，内容可能已被改动。".into())
 }
 
+pub fn compute_fingerprint(public_pem: &str) -> String {
+    let clean: String = public_pem.chars().filter(|c| !c.is_whitespace()).collect();
+    let hash = Sha256::digest(clean.as_bytes());
+    format!(
+        "{:02X}{:02X}·{:02X}{:02X}·{:02X}{:02X}·{:02X}{:02X}",
+        hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7]
+    )
+}
+
+pub fn validate_public_key(pem: &str) -> Result<String, String> {
+    RsaPublicKey::from_public_key_pem(pem)
+        .map(|_| compute_fingerprint(pem))
+        .map_err(|_| "无效的公开身份，请确保包含完整的 -----BEGIN PUBLIC KEY-----".to_string())
+}
+
+pub fn format_file_size(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+pub fn generate_memorable_password() -> String {
+    const ADJECTIVES: &[&str] = &[
+        "swift", "brave", "calm", "amber", "silver", "golden", "silent", "clever", "gentle",
+        "cosmic", "bright", "quiet", "noble", "frosty", "lucky", "solar", "polar", "shadow",
+        "winter", "summer",
+    ];
+    const NOUNS: &[&str] = &[
+        "river", "forest", "mountain", "falcon", "haven", "breeze", "beacon", "valley", "shield",
+        "island", "meadow", "harbor", "zenith", "castle", "bridge", "garden", "planet", "timber",
+        "stream", "canyon",
+    ];
+    let mut rng = rand::thread_rng();
+    use rand::seq::SliceRandom;
+    use rand::Rng;
+    let adj = ADJECTIVES.choose(&mut rng).unwrap_or(&"safe");
+    let noun = NOUNS.choose(&mut rng).unwrap_or(&"box");
+    let num: u32 = rng.gen_range(1000..9999);
+    format!("{adj}-{noun}-{num}")
+}
+
 fn cipher_from_password(password: &str) -> Aes256Gcm {
     let hash = Sha256::digest(password.as_bytes());
     Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&hash))
@@ -165,5 +210,21 @@ mod tests {
         chars[i] = if chars[i] == 'A' { 'B' } else { 'A' };
         let bad: String = chars.into_iter().collect();
         assert!(decrypt("p", &bad).is_err());
+    }
+
+    #[test]
+    fn helpers_test() {
+        let (_private, public) = generate_identity().unwrap();
+        let fp = compute_fingerprint(&public);
+        assert_eq!(fp.chars().count(), 19); // 4 groups of 4 hex chars separated by 3 dots
+        assert!(validate_public_key(&public).is_ok());
+        assert!(validate_public_key("invalid key").is_err());
+
+        let pwd = generate_memorable_password();
+        assert!(pwd.contains('-'));
+
+        assert_eq!(format_file_size(500), "500 B");
+        assert_eq!(format_file_size(2048), "2.0 KB");
+        assert_eq!(format_file_size(2 * 1024 * 1024), "2.0 MB");
     }
 }
