@@ -13,8 +13,12 @@ use crypto::{
     format_file_size, generate_identity, generate_memorable_password, public_from_private,
     validate_public_key, Envelope, FileMeta, IDENTITY_PREFIX, PREFIX,
 };
-use eframe::egui::{self, Color32};
-use std::{fs, path::PathBuf, time::Instant};
+use eframe::egui;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 use theme::ThemeColors;
 
 #[derive(PartialEq, Clone, Copy)]
@@ -62,6 +66,14 @@ struct SelectedFile {
     bytes: Vec<u8>,
 }
 
+#[derive(Clone, Debug)]
+struct LoadedCipherFile {
+    #[allow(dead_code)]
+    path: Option<PathBuf>,
+    name: String,
+    size: usize,
+}
+
 #[derive(Clone)]
 enum DecryptedContent {
     Text(String),
@@ -91,6 +103,7 @@ struct App {
     generated_summary: Option<String>,
 
     // --- 接收状态 ---
+    receive_file: Option<LoadedCipherFile>,
     receive_input: String,
     receive_password: String,
     receive_show_password: bool,
@@ -135,6 +148,7 @@ impl App {
             generated_cipher: String::new(),
             generated_summary: None,
 
+            receive_file: None,
             receive_input: String::new(),
             receive_password: String::new(),
             receive_show_password: false,
@@ -179,6 +193,40 @@ impl App {
             let _ = cb.set_text(text);
         }
         self.notify(feedback, ToastKind::Success);
+    }
+
+    fn load_cipher_file_for_receive(&mut self, path: PathBuf) {
+        match fs::read_to_string(&path) {
+            Ok(content) => {
+                let trimmed = content.trim().to_string();
+                if trimmed.is_empty() {
+                    self.notify("密信文件内容为空", ToastKind::Warning);
+                    return;
+                }
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                let size = match fs::metadata(&path) {
+                    Ok(m) => m.len() as usize,
+                    Err(_) => content.len(),
+                };
+                self.receive_file = Some(LoadedCipherFile {
+                    name,
+                    size,
+                    path: Some(path),
+                });
+                self.receive_input = trimmed;
+                self.decrypted = None;
+                self.receive_password.clear();
+                self.tab = Tab::Receive;
+                self.notify("已载入密信文件", ToastKind::Success);
+            }
+            Err(e) => {
+                self.notify(format!("无法读取密信文件：{e}"), ToastKind::Error);
+            }
+        }
     }
 
     fn load_file_for_send(&mut self, path: PathBuf) {
@@ -357,10 +405,20 @@ impl App {
                         match base64::engine::general_purpose::STANDARD.decode(&packet.data) {
                             Ok(data) => {
                                 if packet.kind == "file" || packet.kind == "text-file" {
-                                    let meta = packet.meta.unwrap_or(FileMeta {
-                                        name: "解密文件".into(),
-                                        extension: "bin".into(),
-                                        content_type: "application/octet-stream".into(),
+                                    let meta = packet.meta.unwrap_or_else(|| {
+                                        let (name, ext) = if let Some(rf) = &self.receive_file {
+                                            let p = Path::new(&rf.name);
+                                            let stem = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                                            let ext = Path::new(&stem).extension().unwrap_or_default().to_string_lossy().to_string();
+                                            (stem, ext)
+                                        } else {
+                                            ("解密文件".into(), "bin".into())
+                                        };
+                                        FileMeta {
+                                            name,
+                                            extension: ext,
+                                            content_type: "application/octet-stream".into(),
+                                        }
                                     });
                                     self.decrypted = Some(DecryptedContent::File {
                                         meta,
@@ -380,10 +438,32 @@ impl App {
                         }
                     }
                     Err(_) => {
-                        // Old-version raw plaintext fallback
-                        let text = String::from_utf8_lossy(&bytes).into_owned();
-                        self.decrypted = Some(DecryptedContent::Text(text));
-                        self.notify("已解密旧版文字密信", ToastKind::Success);
+                        let is_binary = bytes.contains(&0);
+                        if is_binary || self.receive_file.is_some() {
+                            let (name, ext) = if let Some(rf) = &self.receive_file {
+                                let p = Path::new(&rf.name);
+                                let stem = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                                let ext = Path::new(&stem).extension().unwrap_or_default().to_string_lossy().to_string();
+                                (stem, ext)
+                            } else {
+                                ("解密文件".into(), "bin".into())
+                            };
+                            self.decrypted = Some(DecryptedContent::File {
+                                meta: FileMeta {
+                                    name,
+                                    extension: ext,
+                                    content_type: "application/octet-stream".into(),
+                                },
+                                bytes,
+                                saved_path: None,
+                            });
+                            self.notify("文件解密成功！请点击保存。", ToastKind::Success);
+                        } else {
+                            // Old-version raw plaintext fallback
+                            let text = String::from_utf8_lossy(&bytes).into_owned();
+                            self.decrypted = Some(DecryptedContent::Text(text));
+                            self.notify("已解密旧版文字密信", ToastKind::Success);
+                        }
                     }
                 }
             }
@@ -405,13 +485,19 @@ impl eframe::App for App {
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
         for file in dropped_files {
             if let Some(path) = file.path {
-                if path.extension().is_some_and(|ext| ext == "mixin") {
+                let is_mixin_ext = path.extension().is_some_and(|ext| ext == "mixin");
+                if is_mixin_ext {
+                    self.load_cipher_file_for_receive(path);
+                } else if self.tab == Tab::Receive {
                     if let Ok(content) = fs::read_to_string(&path) {
-                        self.tab = Tab::Receive;
-                        self.receive_input = content.trim().to_string();
-                        self.decrypted = None;
-                        self.notify("已载入拖入的密信文件", ToastKind::Success);
+                        let trimmed = content.trim();
+                        if trimmed.starts_with(PREFIX) || trimmed.starts_with(IDENTITY_PREFIX) {
+                            self.load_cipher_file_for_receive(path);
+                            continue;
+                        }
                     }
+                    self.tab = Tab::Send;
+                    self.load_file_for_send(path);
                 } else {
                     self.tab = Tab::Send;
                     self.load_file_for_send(path);

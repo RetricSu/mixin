@@ -1,5 +1,6 @@
 //! Headless checks of the same UI used by the native window, with ephemeral identities.
 use super::*;
+use eframe::egui::Color32;
 
 fn fixture(identity: &(String, String)) -> App {
     App::with_identity(identity.clone(), Vec::new(), false)
@@ -401,5 +402,135 @@ fn theme_text_contrast_and_heading_colors() {
         let ctx = egui::Context::default();
         theme::apply_theme(&ctx, dark);
         assert_eq!(ctx.style().visuals.strong_text_color(), theme.text_primary);
+    }
+}
+
+#[test]
+fn file_encryption_and_decryption_ui_lifecycle() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+
+    // 1. Send file setup
+    let dummy_file_bytes = b"PDF-1.7 confidential report binary content \x00\xFF\xFE\x01\x02";
+    app.payload_type = PayloadType::File;
+    app.send_file = Some(SelectedFile {
+        path: PathBuf::from("/tmp/annual_report.pdf"),
+        name: "annual_report".into(),
+        extension: "pdf".into(),
+        size: dummy_file_bytes.len(),
+        bytes: dummy_file_bytes.to_vec(),
+    });
+    app.send_password = "secure-file-pass".into();
+    app.send_confirm = "secure-file-pass".into();
+
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+    theme::apply_theme(&ctx, false);
+
+    // Render send UI and verify file action
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "生成密信");
+    app.do_send();
+    assert!(!app.generated_cipher.is_empty());
+
+    // In generated output for file: "保存密信文件" must be visible, but "查看加密文本" must NOT be visible
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "保存密信文件");
+    assert!(
+        !output.shapes.iter().any(|shape| {
+            if let egui::Shape::Text(text) = &shape.shape {
+                text.galley.job.text.contains("查看加密文本")
+            } else {
+                false
+            }
+        }),
+        "Raw ciphertext drawer must be hidden for files to avoid user fear"
+    );
+
+    // 2. Receive file: simulate loading cipher file
+    let temp_cipher_path = std::env::temp_dir().join("annual_report.pdf.mixin");
+    fs::write(&temp_cipher_path, &app.generated_cipher).unwrap();
+    app.load_cipher_file_for_receive(temp_cipher_path.clone());
+    let _ = fs::remove_file(&temp_cipher_path);
+
+    assert!(app.tab == Tab::Receive);
+    assert!(app.receive_file.is_some());
+    assert!(app.decrypted.is_none());
+
+    // When a cipher file is loaded, the UI renders the friendly file card, NOT a raw multiline ciphertext edit
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "更换文件");
+    text_center(&output, "移除");
+    assert!(
+        output.shapes.iter().any(|shape| {
+            if let egui::Shape::Text(text) = &shape.shape {
+                text.galley.job.text.contains("annual_report.pdf.mixin")
+            } else {
+                false
+            }
+        }),
+        "Loaded cipher file name must be displayed"
+    );
+
+    // 3. Decrypt with correct password
+    app.receive_password = "secure-file-pass".into();
+    app.do_receive();
+
+    // Verify it is DecryptedContent::File, NOT bare DecryptedContent::Text
+    match &app.decrypted {
+        Some(DecryptedContent::File {
+            meta,
+            bytes,
+            saved_path,
+        }) => {
+            assert_eq!(meta.name, "annual_report");
+            assert_eq!(meta.extension, "pdf");
+            assert_eq!(bytes, dummy_file_bytes);
+            assert!(saved_path.is_none());
+        }
+        Some(DecryptedContent::Text(_)) => {
+            panic!("File decryption must NEVER produce bare decrypted text!")
+        }
+        None => panic!("Decryption failed"),
+    }
+
+    // 4. In decrypted state: UI cleanly displays file result card and "保存文件"
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "文件解密成功");
+    text_center(&output, "保存文件");
+    text_center(&output, "解密其他密信");
+
+    // 5. Clicking "解密其他密信" resets the receive state completely
+    click(&mut app, &ctx, text_center(&output, "解密其他密信"));
+    assert!(app.decrypted.is_none());
+    assert!(app.receive_file.is_none());
+    assert!(app.receive_input.is_empty());
+    assert!(app.receive_password.is_empty());
+}
+
+#[test]
+fn binary_payload_legacy_fallback_never_shows_bare_text() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+
+    // Encrypt raw binary data that contains null bytes (not an Envelope JSON)
+    let raw_binary = b"PK\x03\x04\x00\x00\x08\x00\x00\x00\x00\x00archive content";
+    let password = "fallback-pass";
+    let cipher = encrypt_payload(password, raw_binary).unwrap();
+
+    app.tab = Tab::Receive;
+    app.receive_input = cipher;
+    app.receive_password = password.into();
+    app.do_receive();
+
+    // Must be classified as File, NEVER raw lossy text with question-mark diamonds
+    match &app.decrypted {
+        Some(DecryptedContent::File { bytes, .. }) => {
+            assert_eq!(bytes, raw_binary);
+        }
+        Some(DecryptedContent::Text(_)) => {
+            panic!("Binary fallback must NOT decode to bare lossy text");
+        }
+        None => panic!("Decryption failed"),
     }
 }
