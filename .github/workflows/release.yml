@@ -115,6 +115,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $packageDir
 
           Copy-Item "target/${{ matrix.target }}/release/mixin.exe" -Destination "$packageDir/mixin.exe"
+          Copy-Item "target/${{ matrix.target }}/release/mixin.exe" -Destination "$packageDir/密信.exe"
           Copy-Item "dist/双击我.bat" -Destination "$packageDir/双击我.bat"
           Copy-Item "dist/说明.txt" -Destination "$packageDir/说明.txt"
           if (Test-Path "assets/icons/icon.ico") {

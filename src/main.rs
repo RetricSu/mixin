@@ -1,4 +1,6 @@
 //! 密信桌面版：面向普通人的极简点对点安全传递工具
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod contacts;
 mod crypto;
 mod theme;
