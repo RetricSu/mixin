@@ -43,7 +43,7 @@ jobs:
 
       - name: Install cargo-bundle and create-dmg
         run: |
-          cargo install cargo-bundle || true
+          which cargo-bundle > /dev/null 2>&1 || cargo install cargo-bundle --locked
           brew install create-dmg || true
 
       - name: Bundle macOS App
@@ -164,7 +164,7 @@ jobs:
 
       - name: Bundle Debian Package (.deb)
         run: |
-          cargo install cargo-bundle || true
+          which cargo-bundle > /dev/null 2>&1 || cargo install cargo-bundle --locked || true
           cargo bundle --release --target ${{ matrix.target }} --format deb || true
 
       - name: Package Linux tar.gz
