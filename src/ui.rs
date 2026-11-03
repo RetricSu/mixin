@@ -81,6 +81,15 @@ impl App {
                         self.generated_summary = None;
                     }
                 });
+            } else if self.tab == Tab::Receive && self.decrypted.is_some() {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if theme::ghost_button(ui, "解密其他密信", &t).clicked() {
+                        self.decrypted = None;
+                        self.receive_file = None;
+                        self.receive_input.clear();
+                        self.receive_password.clear();
+                    }
+                });
             }
         });
     }
@@ -595,6 +604,7 @@ impl App {
 
     fn render_generated_output(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
+        let is_file = self.payload_type == PayloadType::File || self.send_file.is_some();
         theme::card(ui, &t, |ui| {
             ui.horizontal(|ui| {
                 theme::icon(ui, Icon::Check, 28.0, t.accent_emerald);
@@ -613,8 +623,20 @@ impl App {
             ui.add_space(14.0);
             ui.label(
                 RichText::new(match self.send_mode {
-                    SendMode::Password => "复制或保存密信，通过聊天、邮件等任意方式发给对方。",
-                    SendMode::Contact => "复制或保存密信，发给对方即可。只有对方的本机身份能解开。",
+                    SendMode::Password => {
+                        if is_file {
+                            "保存密信文件，通过聊天、邮件等任意方式发给对方。"
+                        } else {
+                            "复制或保存密信，通过聊天、邮件等任意方式发给对方。"
+                        }
+                    }
+                    SendMode::Contact => {
+                        if is_file {
+                            "保存密信文件发给对方即可。只有对方的本机身份能解开。"
+                        } else {
+                            "复制或保存密信，发给对方即可。只有对方的本机身份能解开。"
+                        }
+                    }
                 })
                 .color(t.text_secondary),
             );
@@ -637,43 +659,64 @@ impl App {
             }
             ui.add_space(16.0);
             ui.horizontal(|ui| {
-                if theme::primary_button(ui, "复制密信文本", &t).clicked() {
-                    self.copy_text(
-                        ui.ctx(),
-                        self.generated_cipher.clone(),
-                        "密信已复制，可直接粘贴发给对方",
-                    );
-                }
-                if theme::secondary_button(ui, "保存密信文件", &t)
-                    .on_hover_text("保存为 .mixin 文件，对方可直接拖入密信打开")
-                    .clicked()
-                {
-                    self.save_generated_cipher();
+                if is_file {
+                    if theme::primary_button(ui, "保存密信文件", &t)
+                        .on_hover_text("保存为 .mixin 文件，对方可直接拖入密信打开")
+                        .clicked()
+                    {
+                        self.save_generated_cipher();
+                    }
+                    if theme::secondary_button(ui, "复制密信文本", &t).clicked() {
+                        self.copy_text(
+                            ui.ctx(),
+                            self.generated_cipher.clone(),
+                            "密信已复制，可直接粘贴发给对方",
+                        );
+                    }
+                } else {
+                    if theme::primary_button(ui, "复制密信文本", &t).clicked() {
+                        self.copy_text(
+                            ui.ctx(),
+                            self.generated_cipher.clone(),
+                            "密信已复制，可直接粘贴发给对方",
+                        );
+                    }
+                    if theme::secondary_button(ui, "保存密信文件", &t)
+                        .on_hover_text("保存为 .mixin 文件，对方可直接拖入密信打开")
+                        .clicked()
+                    {
+                        self.save_generated_cipher();
+                    }
                 }
             });
-            ui.add_space(14.0);
-            theme::hairline(ui, &t);
-            ui.add_space(6.0);
-            egui::CollapsingHeader::new(
-                RichText::new("查看加密文本").size(12.5).color(t.text_secondary),
-            )
-            .id_salt("cipher_text")
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.generated_cipher.as_str())
-                            .font(egui::TextStyle::Monospace)
-                            .margin(egui::vec2(8.0, 6.0))
-                            .desired_width(f32::INFINITY),
-                    );
+            if !is_file {
+                ui.add_space(14.0);
+                theme::hairline(ui, &t);
+                ui.add_space(6.0);
+                egui::CollapsingHeader::new(
+                    RichText::new("查看加密文本").size(12.5).color(t.text_secondary),
+                )
+                .id_salt("cipher_text")
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(&mut self.generated_cipher.as_str())
+                                .font(egui::TextStyle::Monospace)
+                                .margin(egui::vec2(8.0, 6.0))
+                                .desired_width(f32::INFINITY),
+                        );
+                    });
                 });
-            });
+            }
         });
     }
 
     fn save_generated_cipher(&mut self) {
         let default_name = match &self.send_file {
-            Some(file) if self.payload_type == PayloadType::File => format!("{}.mixin", file.name),
+            Some(file) if self.payload_type == PayloadType::File => {
+                let stem = display_name(&file.name, &file.extension);
+                format!("{stem}.mixin")
+            }
             _ => "密信.mixin".to_string(),
         };
         let Some(path) = rfd::FileDialog::new()
@@ -700,6 +743,14 @@ impl App {
     // ========================================================
     fn render_receive_tab(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
+        if self.decrypted.is_some() {
+            egui::ScrollArea::vertical()
+                .id_salt("decrypted_scroll")
+                .auto_shrink([false, true])
+                .show(ui, |ui| self.render_decrypted_result(ui));
+            return;
+        }
+
         egui::ScrollArea::vertical()
             .id_salt("receive_scroll")
             .auto_shrink([false, true])
@@ -720,45 +771,12 @@ impl App {
                         theme::status_label(ui, label, color);
                     }
                 });
-                theme::paper(ui, &t, |ui| {
-                    let response = ui.add(
-                        egui::TextEdit::multiline(&mut self.receive_input)
-                            .hint_text("粘贴收到的密信，或把 .mixin 文件拖进窗口")
-                            .font(egui::TextStyle::Monospace)
-                            .frame(false)
-                            .margin(egui::vec2(0.0, 2.0))
-                            .desired_rows(4)
-                            .min_size(egui::vec2(0.0, EDITOR_MIN_HEIGHT - 34.0))
-                            .desired_width(f32::INFINITY),
-                    );
-                    if response.changed() {
-                        self.decrypted = None;
-                    }
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 2.0;
-                        if theme::ghost_button(ui, "粘贴密信", &t).clicked() {
-                            if let Ok(mut cb) = arboard::Clipboard::new() {
-                                if let Ok(text) = cb.get_text() {
-                                    self.receive_input = text.trim().to_string();
-                                    self.decrypted = None;
-                                }
-                            }
-                        }
-                        if theme::ghost_button(ui, "打开文件", &t).clicked() {
-                            self.open_cipher_file();
-                        }
-                        if !self.receive_input.is_empty() {
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if theme::ghost_button(ui, "清空", &t).clicked() {
-                                    self.receive_input.clear();
-                                    self.receive_password.clear();
-                                    self.decrypted = None;
-                                }
-                            });
-                        }
-                    });
-                });
+
+                if let Some(file) = self.receive_file.clone() {
+                    self.render_received_file_card(ui, &file);
+                } else {
+                    self.render_receive_text_input(ui);
+                }
 
                 let trimmed = self.receive_input.trim();
                 if trimmed.starts_with(IDENTITY_PREFIX) {
@@ -778,7 +796,7 @@ impl App {
                         ui.add(
                             egui::Label::new(
                                 RichText::new(
-                                    "密信以 MX1.（口令）或 MXID1.（专属）开头，请确认复制完整。",
+                                    "密信以 MX1.（口令）或 MXID1.（专属）开头，请确认复制完整或选择有效的密信文件。",
                                 )
                                 .size(12.5)
                                 .color(t.text_secondary),
@@ -787,13 +805,98 @@ impl App {
                         );
                     });
                 }
-
-                if self.decrypted.is_some() {
-                    ui.add_space(16.0);
-                    self.render_decrypted_result(ui);
-                }
                 ui.add_space(8.0);
             });
+    }
+
+    fn render_received_file_card(&mut self, ui: &mut egui::Ui, file: &LoadedCipherFile) {
+        let t = self.theme();
+        theme::paper_frame(&t)
+            .inner_margin(Margin::symmetric(14.0, 10.0))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let name = file.name.clone();
+                let size = format_file_size(file.size);
+                let mut pick = false;
+                let mut remove = false;
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), EDITOR_MIN_HEIGHT),
+                    Layout::left_to_right(Align::Center),
+                    |ui| {
+                        file_tile(ui, "mixin", &t);
+                        ui.add_space(4.0);
+                        let buttons_width = 150.0;
+                        ui.allocate_ui_with_layout(
+                            egui::vec2((ui.available_width() - buttons_width).max(80.0), 44.0),
+                            Layout::top_down(Align::Min),
+                            |ui| {
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                ui.add(egui::Label::new(RichText::new(&name).strong()).truncate())
+                                    .on_hover_text(&name);
+                                theme::caption(ui, format!("{size} · 密信文件已就绪"), &t);
+                            },
+                        );
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            remove = theme::ghost_button(ui, "移除", &t).clicked();
+                            pick = theme::secondary_button(ui, "更换文件", &t).clicked();
+                        });
+                    },
+                );
+                if remove {
+                    self.receive_file = None;
+                    self.receive_input.clear();
+                    self.receive_password.clear();
+                    self.decrypted = None;
+                }
+                if pick {
+                    self.open_cipher_file();
+                }
+            });
+    }
+
+    fn render_receive_text_input(&mut self, ui: &mut egui::Ui) {
+        let t = self.theme();
+        theme::paper(ui, &t, |ui| {
+            let response = ui.add(
+                egui::TextEdit::multiline(&mut self.receive_input)
+                    .hint_text("粘贴收到的密信，或把 .mixin 文件拖进窗口")
+                    .font(egui::TextStyle::Monospace)
+                    .frame(false)
+                    .margin(egui::vec2(0.0, 2.0))
+                    .desired_rows(4)
+                    .min_size(egui::vec2(0.0, EDITOR_MIN_HEIGHT - 34.0))
+                    .desired_width(f32::INFINITY),
+            );
+            if response.changed() {
+                self.decrypted = None;
+            }
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                if theme::ghost_button(ui, "粘贴密信", &t).clicked() {
+                    if let Ok(mut cb) = arboard::Clipboard::new() {
+                        if let Ok(text) = cb.get_text() {
+                            self.receive_input = text.trim().to_string();
+                            self.receive_file = None;
+                            self.decrypted = None;
+                        }
+                    }
+                }
+                if theme::ghost_button(ui, "打开文件", &t).clicked() {
+                    self.open_cipher_file();
+                }
+                if !self.receive_input.is_empty() {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if theme::ghost_button(ui, "清空", &t).clicked() {
+                            self.receive_input.clear();
+                            self.receive_file = None;
+                            self.receive_password.clear();
+                            self.decrypted = None;
+                        }
+                    });
+                }
+            });
+        });
     }
 
     fn open_cipher_file(&mut self) {
@@ -803,13 +906,7 @@ impl App {
         else {
             return;
         };
-        match fs::read_to_string(&path) {
-            Ok(content) => {
-                self.receive_input = content.trim().to_string();
-                self.decrypted = None;
-            }
-            Err(e) => self.notify(format!("无法读取文件：{e}"), ToastKind::Error),
-        }
+        self.load_cipher_file_for_receive(path);
     }
 
     fn render_identity_decrypt_card(&mut self, ui: &mut egui::Ui) {
@@ -865,16 +962,16 @@ impl App {
         theme::card(ui, &t, |ui| match content {
             DecryptedContent::Text(plain_text) => {
                 ui.horizontal(|ui| {
-                    theme::icon(ui, Icon::Check, 18.0, t.accent_emerald);
-                    ui.label(RichText::new("文字").strong());
-                    theme::caption(ui, format!("{} 字", plain_text.chars().count()), &t);
+                    theme::icon(ui, Icon::Check, 20.0, t.accent_emerald);
+                    ui.label(RichText::new("密信已解密").size(15.0).strong());
+                    theme::caption(ui, format!("文字 · {} 字", plain_text.chars().count()), &t);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if theme::primary_button(ui, "复制文字", &t).clicked() {
                             self.copy_text(ui.ctx(), plain_text.clone(), "已复制解密文字");
                         }
                     });
                 });
-                ui.add_space(8.0);
+                ui.add_space(10.0);
                 egui::ScrollArea::vertical()
                     .id_salt("decrypted_text")
                     .max_height(220.0)
@@ -886,6 +983,17 @@ impl App {
                                 .desired_width(f32::INFINITY),
                         );
                     });
+                ui.add_space(12.0);
+                theme::hairline(ui, &t);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if theme::ghost_button(ui, "解密其他密信", &t).clicked() {
+                        self.decrypted = None;
+                        self.receive_file = None;
+                        self.receive_input.clear();
+                        self.receive_password.clear();
+                    }
+                });
             }
             DecryptedContent::File {
                 meta,
@@ -895,47 +1003,69 @@ impl App {
                 let full_filename = display_name(&meta.name, &meta.extension);
                 let mut save = false;
                 ui.horizontal(|ui| {
-                    file_tile(ui, &meta.extension, &t);
-                    ui.add_space(4.0);
-                    let buttons_width = 120.0;
-                    ui.allocate_ui_with_layout(
-                        egui::vec2((ui.available_width() - buttons_width).max(80.0), 44.0),
-                        Layout::top_down(Align::Min),
-                        |ui| {
-                            ui.spacing_mut().item_spacing.y = 2.0;
-                            ui.add(
-                                egui::Label::new(RichText::new(&full_filename).strong())
-                                    .truncate(),
-                            )
-                            .on_hover_text(&full_filename);
-                            match &saved_path {
-                                Some(path) => {
-                                    let text = format!("已保存到 {}", path.display());
-                                    ui.add(
-                                        egui::Label::new(
-                                            RichText::new(&text).size(12.0).color(t.text_accent),
-                                        )
+                    theme::icon(ui, Icon::Check, 20.0, t.accent_emerald);
+                    ui.label(RichText::new("文件解密成功").size(15.0).strong());
+                    theme::caption(ui, "文件已在本地安全解开，请保存到电脑", &t);
+                });
+                ui.add_space(12.0);
+
+                theme::well_frame(&t).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        file_tile(ui, &meta.extension, &t);
+                        ui.add_space(4.0);
+                        let buttons_width = 130.0;
+                        ui.allocate_ui_with_layout(
+                            egui::vec2((ui.available_width() - buttons_width).max(80.0), 44.0),
+                            Layout::top_down(Align::Min),
+                            |ui| {
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                ui.add(
+                                    egui::Label::new(RichText::new(&full_filename).strong())
                                         .truncate(),
-                                    )
-                                    .on_hover_text(text);
+                                )
+                                .on_hover_text(&full_filename);
+                                match &saved_path {
+                                    Some(path) => {
+                                        let text = format!("已保存到 {}", path.display());
+                                        ui.add(
+                                            egui::Label::new(
+                                                RichText::new(&text).size(12.0).color(t.text_accent),
+                                            )
+                                            .truncate(),
+                                        )
+                                        .on_hover_text(text);
+                                    }
+                                    None => {
+                                        theme::caption(
+                                            ui,
+                                            format!("{} · 尚未保存到本地", format_file_size(bytes.len())),
+                                            &t,
+                                        );
+                                    }
                                 }
-                                None => {
-                                    theme::caption(
-                                        ui,
-                                        format!("{} · 尚未保存", format_file_size(bytes.len())),
-                                        &t,
-                                    );
-                                }
-                            }
-                        },
-                    );
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        save = if saved_path.is_some() {
-                            theme::secondary_button(ui, "另存为", &t).clicked()
-                        } else {
-                            theme::primary_button(ui, "保存文件", &t).clicked()
-                        };
+                            },
+                        );
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            save = if saved_path.is_some() {
+                                theme::secondary_button(ui, "另存为", &t).clicked()
+                            } else {
+                                theme::primary_button(ui, "保存文件", &t).clicked()
+                            };
+                        });
                     });
+                });
+
+                ui.add_space(12.0);
+                theme::hairline(ui, &t);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if theme::ghost_button(ui, "解密其他密信", &t).clicked() {
+                        self.decrypted = None;
+                        self.receive_file = None;
+                        self.receive_input.clear();
+                        self.receive_password.clear();
+                    }
                 });
                 if save {
                     if let Some(dest) = rfd::FileDialog::new()
@@ -1402,7 +1532,7 @@ impl App {
 // ============================================================
 
 fn display_name(name: &str, extension: &str) -> String {
-    if extension.is_empty() {
+    if extension.is_empty() || name.ends_with(&format!(".{extension}")) {
         name.to_string()
     } else {
         format!("{name}.{extension}")
