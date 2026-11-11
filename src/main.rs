@@ -10,8 +10,8 @@ use base64::Engine as _;
 use contacts::{add_contact, load_contacts, remove_contact, Contact};
 use crypto::{
     compute_fingerprint, decrypt_payload, decrypt_with, encrypt_for, encrypt_payload,
-    format_file_size, generate_identity, generate_memorable_password, public_from_private,
-    validate_public_key, Envelope, FileMeta, IDENTITY_PREFIX, PREFIX,
+    format_file_size, format_fingerprint_spaced, generate_identity, generate_memorable_password,
+    public_from_private, validate_public_key, Envelope, FileMeta, IDENTITY_PREFIX, PREFIX,
 };
 use eframe::egui;
 use std::{
@@ -114,6 +114,14 @@ struct App {
     clipboard_ignored: Option<String>,
     focus_receive_password: bool,
 
+    // --- 隐私、窗口与快捷交互状态 ---
+    window_focused: bool,
+    privacy_blur_enabled: bool,
+    manual_mask_hidden: bool,
+    password_error_msg: Option<String>,
+    password_error_at: Option<Instant>,
+    show_qr_dialog: bool,
+
     // --- 身份与联系人状态 ---
     identity: (String, String), // (private_pem, public_pem)
     my_fingerprint: String,
@@ -166,6 +174,13 @@ impl App {
             last_clipboard_check: Instant::now(),
             clipboard_ignored: None,
             focus_receive_password: false,
+
+            window_focused: true,
+            privacy_blur_enabled: true,
+            manual_mask_hidden: false,
+            password_error_msg: None,
+            password_error_at: None,
+            show_qr_dialog: false,
 
             identity,
             my_fingerprint,
@@ -424,6 +439,8 @@ impl App {
 
         match plain_bytes {
             Ok(bytes) => {
+                self.password_error_msg = None;
+                self.password_error_at = None;
                 // Check if it's Envelope json
                 match serde_json::from_slice::<Envelope>(&bytes) {
                     Ok(packet) => {
@@ -510,9 +527,44 @@ impl App {
             }
             Err(e) => {
                 self.focus_receive_password = true;
+                if trimmed.starts_with(PREFIX) {
+                    self.password_error_msg = Some("口令不匹配".into());
+                    self.password_error_at = Some(Instant::now());
+                }
                 self.notify(format!("解密失败：{e}"), ToastKind::Error);
             }
         }
+    }
+
+    pub(crate) fn destroy_decrypted(&mut self) {
+        if let Some(mut content) = self.decrypted.take() {
+            match &mut content {
+                DecryptedContent::Text(ref mut s) => {
+                    unsafe {
+                        for b in s.as_mut_vec().iter_mut() {
+                            *b = 0;
+                        }
+                    }
+                    s.clear();
+                }
+                DecryptedContent::File { ref mut bytes, .. } => {
+                    for b in bytes.iter_mut() {
+                        *b = 0;
+                    }
+                    bytes.clear();
+                }
+            }
+        }
+        self.decrypted = None;
+        self.receive_file = None;
+        self.receive_input.clear();
+        self.receive_password.clear();
+        self.focus_receive_password = false;
+        self.clipboard_cipher = None;
+        self.manual_mask_hidden = false;
+        self.password_error_msg = None;
+        self.password_error_at = None;
+        self.notify("解密内容已销毁，已恢复干净状态", ToastKind::Success);
     }
 
     pub(crate) fn delivery_guidance(&self, is_file: bool) -> String {
@@ -692,8 +744,11 @@ impl eframe::App for App {
             self.check_clipboard_for_cipher(ctx);
         }
 
-        // Repaint if toast is alive
-        if self.toast.is_some() {
+        // Repaint if toast is alive or password shake animation is active
+        let is_shaking = self
+            .password_error_at
+            .is_some_and(|t| t.elapsed().as_secs_f32() < 0.4);
+        if self.toast.is_some() || is_shaking {
             ctx.request_repaint();
         }
     }

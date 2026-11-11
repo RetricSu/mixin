@@ -143,6 +143,10 @@ pub fn compute_fingerprint(public_pem: &str) -> String {
     )
 }
 
+pub fn format_fingerprint_spaced(fp: &str) -> String {
+    fp.replace(" · ", "·").replace('·', " · ")
+}
+
 pub fn validate_public_key(pem: &str) -> Result<String, String> {
     RsaPublicKey::from_public_key_pem(pem)
         .map(|_| compute_fingerprint(pem))
@@ -223,6 +227,7 @@ mod tests {
         let pwd = generate_memorable_password();
         assert!(pwd.contains('-'));
 
+        assert_eq!(format_fingerprint_spaced("A1B2·C3D4·E5F6·7890"), "A1B2 · C3D4 · E5F6 · 7890");
         assert_eq!(format_file_size(500), "500 B");
         assert_eq!(format_file_size(2048), "2.0 KB");
         assert_eq!(format_file_size(2 * 1024 * 1024), "2.0 MB");

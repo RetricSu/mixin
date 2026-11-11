@@ -503,7 +503,7 @@ fn file_encryption_and_decryption_ui_lifecycle() {
     let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
     text_center(&output, "文件解密成功");
     text_center(&output, "保存文件");
-    text_center(&output, "解密其他密信");
+    text_center(&output, "立即销毁 / 隐藏密文");
 
     // Simulate saving file: saved actions appear
     let saved_dest = std::env::temp_dir().join("annual_report_saved.pdf");
@@ -520,8 +520,8 @@ fn file_encryption_and_decryption_ui_lifecycle() {
     text_center(&output, "另存为");
     let _ = fs::remove_file(&saved_dest);
 
-    // 5. Clicking "解密其他密信" resets the receive state completely
-    click(&mut app, &ctx, text_center(&output, "解密其他密信"));
+    // 5. Clicking "立即销毁 / 隐藏密文" resets the receive state completely
+    click(&mut app, &ctx, text_center(&output, "立即销毁 / 隐藏密文"));
     assert!(app.decrypted.is_none());
     assert!(app.receive_file.is_none());
     assert!(app.receive_input.is_empty());
@@ -994,4 +994,265 @@ fn test_font_scale_strictly_constrained() {
             }
         }
     }
+}
+
+#[test]
+fn test_global_keyboard_flow() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+
+    // Initial tab is Send
+    assert_eq!(app.tab, Tab::Send);
+
+    // Cmd + 2 switches to Receive
+    render(
+        &mut app,
+        &ctx,
+        1040.0,
+        800.0,
+        vec![egui::Event::Key {
+            key: egui::Key::Num2,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }],
+    );
+    assert_eq!(app.tab, Tab::Receive);
+
+    // Ctrl + 3 switches to Identity
+    render(
+        &mut app,
+        &ctx,
+        1040.0,
+        800.0,
+        vec![egui::Event::Key {
+            key: egui::Key::Num3,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::CTRL,
+        }],
+    );
+    assert_eq!(app.tab, Tab::Identity);
+
+    // Cmd + 1 switches back to Send
+    render(
+        &mut app,
+        &ctx,
+        1040.0,
+        800.0,
+        vec![egui::Event::Key {
+            key: egui::Key::Num1,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }],
+    );
+    assert_eq!(app.tab, Tab::Send);
+
+    // Prepare message in Send tab
+    app.send_text = "全局快捷键测试内容".into();
+    app.send_password = "keyboard-secret".into();
+    app.send_confirm = "keyboard-secret".into();
+
+    // Cmd + Enter triggers send
+    render(
+        &mut app,
+        &ctx,
+        1040.0,
+        800.0,
+        vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }],
+    );
+    assert!(!app.generated_cipher.is_empty(), "Cmd+Enter must generate cipher");
+
+    // Esc returns to edit
+    render(
+        &mut app,
+        &ctx,
+        1040.0,
+        800.0,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(app.generated_cipher.is_empty(), "Esc must return to edit draft");
+
+    // Switch to receive, input cipher, test Cmd + Enter for decryption
+    app.tab = Tab::Receive;
+    let envelope = Envelope {
+        kind: "text".into(),
+        meta: None,
+        data: base64::engine::general_purpose::STANDARD.encode(b"decrypted via cmd enter"),
+    };
+    let packet = serde_json::to_vec(&envelope).unwrap();
+    let cipher = encrypt_payload("keyboard-secret", &packet).unwrap();
+    app.receive_input = cipher;
+    app.receive_password = "keyboard-secret".into();
+
+    render(
+        &mut app,
+        &ctx,
+        1040.0,
+        800.0,
+        vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }],
+    );
+    assert!(app.decrypted.is_some(), "Cmd+Enter must trigger decryption");
+
+    // Esc destroys decrypted content
+    render(
+        &mut app,
+        &ctx,
+        1040.0,
+        800.0,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(app.decrypted.is_none(), "Esc must destroy decrypted result");
+}
+
+#[test]
+fn test_password_shake_and_inline_error_feedback() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+
+    app.tab = Tab::Receive;
+    let envelope = Envelope {
+        kind: "text".into(),
+        meta: None,
+        data: base64::engine::general_purpose::STANDARD.encode(b"test secret"),
+    };
+    let packet = serde_json::to_vec(&envelope).unwrap();
+    let cipher = encrypt_payload("correct-password", &packet).unwrap();
+    app.receive_input = cipher;
+    app.receive_password = "wrong-password".into();
+
+    // Trigger receive with wrong password
+    app.do_receive();
+
+    assert_eq!(app.password_error_msg.as_deref(), Some("口令不匹配"));
+    assert!(app.password_error_at.is_some());
+    assert!(matches!(&app.toast, Some(t) if t.message.contains("解密失败")));
+
+    // Rendering should include inline error text
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "口令不匹配");
+
+    // Modifying the password field clears the error
+    app.receive_password = "correct-password".into();
+    app.password_error_msg = None;
+    app.password_error_at = None;
+    app.do_receive();
+    assert!(app.decrypted.is_some());
+    assert!(app.password_error_msg.is_none());
+}
+
+#[test]
+fn test_privacy_blur_mask_and_destroy_flow() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+
+    app.tab = Tab::Receive;
+    app.decrypted = Some(DecryptedContent::Text("机密会议纪要".into()));
+
+    // When window is focused, decrypted text is visible
+    app.window_focused = true;
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "密信已解密");
+    text_center(&output, "立即销毁 / 隐藏密文");
+
+    // When window loses focus, privacy mask appears
+    render(
+        &mut app,
+        &ctx,
+        1040.0,
+        800.0,
+        vec![egui::Event::WindowFocused(false)],
+    );
+    assert!(!app.window_focused);
+    let output_blurred = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output_blurred, "隐私保护中 · 内容已遮蔽");
+    text_center(&output_blurred, "恢复显示");
+
+    // Clicking "恢复显示" restores visibility
+    click(&mut app, &ctx, text_center(&output_blurred, "恢复显示"));
+    let output_restored = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output_restored, "密信已解密");
+
+    // Clicking "立即销毁 / 隐藏密文" resets memory completely
+    click(&mut app, &ctx, text_center(&output_restored, "立即销毁 / 隐藏密文"));
+    assert!(app.decrypted.is_none());
+    assert!(app.receive_input.is_empty());
+    assert!(app.receive_password.is_empty());
+}
+
+#[test]
+fn test_identity_card_restructuring_and_qr_modal() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+
+    app.tab = Tab::Identity;
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+
+    // 4-character spaced fingerprint is clearly displayed
+    let spaced = format_fingerprint_spaced(&app.my_fingerprint);
+    text_center(&output, &spaced);
+    text_center(&output, "安全身份指纹");
+    text_center(&output, "复制指纹");
+    text_center(&output, "查看/保存二维码");
+
+    // Clicking "查看/保存二维码" opens modal dialog
+    click(&mut app, &ctx, text_center(&output, "查看/保存二维码"));
+    assert!(app.show_qr_dialog);
+
+    let modal_output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&modal_output, "身份二维码");
+    text_center(&modal_output, "保存图片");
+    text_center(&modal_output, "关闭");
+
+    // Esc closes the modal dialog
+    render(
+        &mut app,
+        &ctx,
+        1040.0,
+        800.0,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(!app.show_qr_dialog, "Esc must close QR modal dialog");
 }
