@@ -20,6 +20,7 @@ deb_depends = ["libgtk-3-0"]
 minimum_system_version = "10.14"
 
 [dependencies]
+argon2 = "0.5"
 aes-gcm = "0.10"
 sha2 = "0.10"
 rand = "0.8"
