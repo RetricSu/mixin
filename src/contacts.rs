@@ -66,6 +66,24 @@ pub fn remove_contact(contacts: &mut Vec<Contact>, index: usize) {
     }
 }
 
+pub fn update_contact_name(
+    contacts: &mut [Contact],
+    index: usize,
+    new_name: &str,
+) -> Result<(), String> {
+    let clean_name = new_name.trim();
+    if clean_name.is_empty() {
+        return Err("联系人姓名不能为空。".to_string());
+    }
+    if let Some(contact) = contacts.get_mut(index) {
+        contact.name = clean_name.to_string();
+        save_contacts(contacts);
+        Ok(())
+    } else {
+        Err("找不到指定联系人。".to_string())
+    }
+}
+
 fn current_date_str() -> String {
     // Simple date stamp without pulling in chrono dependency
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -104,5 +122,19 @@ mod tests {
 
         remove_contact(&mut list, 0);
         assert_eq!(list.len(), 0);
+    }
+
+    #[test]
+    fn test_contact_update_name() {
+        let mut list = Vec::new();
+        let (_priv, pub_key) = generate_identity().unwrap();
+        add_contact(&mut list, "Alice", &pub_key).unwrap();
+        assert_eq!(list[0].name, "Alice");
+
+        assert!(update_contact_name(&mut list, 0, "   ").is_err());
+        assert!(update_contact_name(&mut list, 1, "Alice New").is_err());
+
+        assert!(update_contact_name(&mut list, 0, "Alice Work").is_ok());
+        assert_eq!(list[0].name, "Alice Work");
     }
 }

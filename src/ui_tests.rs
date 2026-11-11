@@ -818,3 +818,180 @@ fn enter_key_triggers_password_decryption_flow() {
         _ => panic!("Expected successful text decryption on Enter key"),
     }
 }
+
+#[test]
+fn test_text_input_expansion_word_count_and_draft_isolation() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+    app.send_text = "这是十四个字符的机密内容呀。".into();
+
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+    theme::apply_theme(&ctx, false);
+
+    // Initial render in text mode
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "共 14 字");
+
+    // Switch to file mode and select a file
+    click(&mut app, &ctx, text_center(&output, "文件"));
+    assert!(app.payload_type == PayloadType::File);
+    app.send_file = Some(SelectedFile {
+        path: PathBuf::from("test.txt"),
+        name: "test".into(),
+        extension: "txt".into(),
+        size: 100,
+        bytes: vec![1, 2, 3],
+    });
+
+    // Switch back to text mode: both drafts must be preserved!
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    click(&mut app, &ctx, text_center(&output, "文字"));
+    assert!(app.payload_type == PayloadType::Text);
+    assert_eq!(app.send_text, "这是十四个字符的机密内容呀。");
+    assert!(app.send_file.is_some(), "File draft must not be cleared when switching to text");
+
+    // Switch back to file mode: file draft still there
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    click(&mut app, &ctx, text_center(&output, "文件"));
+    assert!(app.payload_type == PayloadType::File);
+    assert_eq!(app.send_file.as_ref().unwrap().name, "test");
+}
+
+#[test]
+fn test_password_embedded_eye_and_overwrite_protection() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+    theme::apply_theme(&ctx, false);
+
+    // Ensure legacy "显示口令" checkbox does not exist in the send tab
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    let texts: Vec<String> = output
+        .shapes
+        .iter()
+        .filter_map(|s| {
+            if let egui::Shape::Text(t) = &s.shape {
+                Some(t.galley.job.text.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(!texts.iter().any(|t| t == "显示口令"));
+
+    // When empty, clicking "随机生成并复制" generates immediately without confirmation
+    let gen_pt = text_center(&output, "随机生成并复制");
+    click(&mut app, &ctx, gen_pt);
+    assert!(!app.send_password.is_empty());
+    assert!(!app.confirm_overwrite_password);
+
+    // Now set a manual password
+    app.send_password = "my-custom-secret-123".into();
+    app.send_confirm = "my-custom-secret-123".into();
+
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    let gen_pt = text_center(&output, "随机生成并复制");
+    click(&mut app, &ctx, gen_pt);
+
+    // Overwrite was blocked, confirmation dialog requested
+    assert_eq!(app.send_password, "my-custom-secret-123");
+    assert!(app.confirm_overwrite_password);
+
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "已有手动输入口令，确认覆盖？");
+    let cancel_pt = text_center(&output, "取消");
+    click(&mut app, &ctx, cancel_pt);
+
+    // User cancelled: password retained, confirmation dismissed
+    assert_eq!(app.send_password, "my-custom-secret-123");
+    assert!(!app.confirm_overwrite_password);
+
+    // Click again and confirm overwrite
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    let gen_pt = text_center(&output, "随机生成并复制");
+    click(&mut app, &ctx, gen_pt);
+    assert!(app.confirm_overwrite_password);
+
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    let confirm_pt = text_center(&output, "确认覆盖");
+    click(&mut app, &ctx, confirm_pt);
+
+    // Password overwritten with fresh random password
+    assert!(!app.confirm_overwrite_password);
+    assert_ne!(app.send_password, "my-custom-secret-123");
+    assert_eq!(app.send_password, app.send_confirm);
+}
+
+#[test]
+fn test_contact_row_click_navigation_and_inline_rename() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+    app.contacts.push(Contact {
+        name: "李四".into(),
+        public_key: identity.1.clone(),
+        fingerprint: compute_fingerprint(&identity.1),
+        created_at: "2025-01-01".into(),
+    });
+
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+    theme::apply_theme(&ctx, false);
+
+    app.tab = Tab::Identity;
+
+    // First check: In normal state, row displays contact name and "发密信 →"
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    let contact_pt = text_center(&output, "李四");
+
+    // Clicking the contact row directly navigates to Send tab in contact mode
+    click(&mut app, &ctx, contact_pt);
+    assert!(app.tab == Tab::Send);
+    assert!(app.send_mode == SendMode::Contact);
+    assert_eq!(app.selected_contact_idx, Some(0));
+
+    // Return to Identity tab
+    app.tab = Tab::Identity;
+    // Enter inline edit mode
+    app.editing_contact_idx = Some(0);
+    app.editing_contact_name = "李四 (开发经理)".into();
+
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    let save_pt = text_center(&output, "保存");
+    click(&mut app, &ctx, save_pt);
+
+    // Contact name updated and edit mode exited
+    assert_eq!(app.contacts[0].name, "李四 (开发经理)");
+    assert_eq!(app.editing_contact_idx, None);
+}
+
+#[test]
+fn test_font_scale_strictly_constrained() {
+    let allowed_sizes: [f32; 5] = [11.0, 12.5, 14.0, 16.0, 20.0];
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+
+    for dark in [false, true] {
+        theme::apply_theme(&ctx, dark);
+        for tab in [Tab::Send, Tab::Receive, Tab::Identity] {
+            app.tab = tab;
+            let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+            for shape in &output.shapes {
+                if let egui::Shape::Text(text) = &shape.shape {
+                    let size = text.galley.job.sections.first().map_or(0.0, |s| s.format.font_id.size);
+                    if size > 0.0 {
+                        assert!(
+                            allowed_sizes.iter().any(|&allowed| (allowed - size).abs() < 0.1),
+                            "Font size {size} px found in {tab:?}, dark={dark}, not in allowed scale {allowed_sizes:?}: text '{}'",
+                            text.galley.job.text
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
