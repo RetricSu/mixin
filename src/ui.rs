@@ -13,6 +13,18 @@ impl App {
     // Shell
     // ========================================================
     pub(crate) fn render_ui(&mut self, ctx: &egui::Context) {
+        ctx.input(|i| {
+            for event in &i.raw.events {
+                if let egui::Event::WindowFocused(focused) = event {
+                    self.window_focused = *focused;
+                }
+            }
+            if let Some(f) = i.viewport().focused {
+                self.window_focused = f;
+            }
+        });
+        self.handle_global_keyboard(ctx);
+
         let t = self.theme();
         egui::SidePanel::left("navigation")
             .exact_width(SIDEBAR_WIDTH)
@@ -58,6 +70,111 @@ impl App {
 
         self.render_toast(ctx, central.response.rect);
         self.render_drop_overlay(ctx);
+        if self.show_qr_dialog {
+            self.render_qr_dialog(ctx);
+        }
+    }
+
+    pub(crate) fn handle_global_keyboard(&mut self, ctx: &egui::Context) {
+        let mut cmd_1 = false;
+        let mut cmd_2 = false;
+        let mut cmd_3 = false;
+        let mut cmd_enter = false;
+        let mut esc = false;
+
+        ctx.input_mut(|i| {
+            let has_cmd = |m: egui::Modifiers| m.command || m.ctrl || m.mac_cmd;
+
+            for event in &i.events {
+                if let egui::Event::Key {
+                    key,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } = event
+                {
+                    if has_cmd(*modifiers) {
+                        match key {
+                            egui::Key::Num1 => cmd_1 = true,
+                            egui::Key::Num2 => cmd_2 = true,
+                            egui::Key::Num3 => cmd_3 = true,
+                            egui::Key::Enter => cmd_enter = true,
+                            _ => {}
+                        }
+                    }
+                    if *key == egui::Key::Escape {
+                        esc = true;
+                    }
+                }
+            }
+
+            if cmd_1 {
+                let _ = i.consume_key(egui::Modifiers::COMMAND, egui::Key::Num1);
+                let _ = i.consume_key(egui::Modifiers::CTRL, egui::Key::Num1);
+            }
+            if cmd_2 {
+                let _ = i.consume_key(egui::Modifiers::COMMAND, egui::Key::Num2);
+                let _ = i.consume_key(egui::Modifiers::CTRL, egui::Key::Num2);
+            }
+            if cmd_3 {
+                let _ = i.consume_key(egui::Modifiers::COMMAND, egui::Key::Num3);
+                let _ = i.consume_key(egui::Modifiers::CTRL, egui::Key::Num3);
+            }
+            if cmd_enter {
+                let _ = i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter);
+                let _ = i.consume_key(egui::Modifiers::CTRL, egui::Key::Enter);
+            }
+            if esc {
+                let _ = i.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
+            }
+        });
+
+        if cmd_1 {
+            self.tab = Tab::Send;
+        } else if cmd_2 {
+            self.tab = Tab::Receive;
+            self.poll_clipboard();
+        } else if cmd_3 {
+            self.tab = Tab::Identity;
+        }
+
+        if cmd_enter {
+            match self.tab {
+                Tab::Send => {
+                    if self.generated_cipher.is_empty() {
+                        self.do_send();
+                    }
+                }
+                Tab::Receive => {
+                    if self.decrypted.is_none() {
+                        self.do_receive();
+                    }
+                }
+                Tab::Identity => {}
+            }
+        }
+
+        if esc {
+            if self.show_qr_dialog {
+                self.show_qr_dialog = false;
+            } else if self.show_add_contact_dialog {
+                self.show_add_contact_dialog = false;
+            } else if self.show_regenerate_confirm {
+                self.show_regenerate_confirm = false;
+            } else if self.confirm_delete_idx.is_some() {
+                self.confirm_delete_idx = None;
+            } else if self.editing_contact_idx.is_some() {
+                self.editing_contact_idx = None;
+            } else if self.confirm_overwrite_password {
+                self.confirm_overwrite_password = false;
+            } else if self.tab == Tab::Send && !self.generated_cipher.is_empty() {
+                self.generated_cipher.clear();
+                self.generated_summary = None;
+                self.generated_show_password = false;
+            } else if self.tab == Tab::Receive && self.decrypted.is_some() {
+                self.destroy_decrypted();
+            }
+        }
     }
 
     fn render_page_title(&mut self, ui: &mut egui::Ui) {
@@ -77,7 +194,10 @@ impl App {
             );
             if self.tab == Tab::Send && !self.generated_cipher.is_empty() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if theme::ghost_button(ui, "返回编辑", &t).clicked() {
+                    if theme::ghost_button(ui, "返回编辑", &t)
+                        .on_hover_text("返回编辑 (Esc)")
+                        .clicked()
+                    {
                         self.generated_cipher.clear();
                         self.generated_summary = None;
                         self.generated_show_password = false;
@@ -85,13 +205,11 @@ impl App {
                 });
             } else if self.tab == Tab::Receive && self.decrypted.is_some() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if theme::ghost_button(ui, "解密其他密信", &t).clicked() {
-                        self.decrypted = None;
-                        self.receive_file = None;
-                        self.receive_input.clear();
-                        self.receive_password.clear();
-                        self.focus_receive_password = false;
-                        self.clipboard_cipher = None;
+                    if theme::ghost_button_colored(ui, "销毁密文", t.accent_rose, &t)
+                        .on_hover_text("彻底清空解密内存并重置接收页面 (Esc)")
+                        .clicked()
+                    {
+                        self.destroy_decrypted();
                     }
                 });
             }
@@ -133,12 +251,28 @@ impl App {
         ui.add_space(22.0);
 
         ui.spacing_mut().item_spacing.y = 2.0;
-        for (tab, icon, title) in [
-            (Tab::Send, Icon::Send, "发送密信"),
-            (Tab::Receive, Icon::Receive, "接收密信"),
-            (Tab::Identity, Icon::Identity, "身份与联系人"),
+        let is_mac = cfg!(target_os = "macos");
+        for (tab, icon, title, shortcut) in [
+            (
+                Tab::Send,
+                Icon::Send,
+                "发送密信",
+                if is_mac { "⌘1" } else { "Ctrl+1" },
+            ),
+            (
+                Tab::Receive,
+                Icon::Receive,
+                "接收密信",
+                if is_mac { "⌘2" } else { "Ctrl+2" },
+            ),
+            (
+                Tab::Identity,
+                Icon::Identity,
+                "身份与联系人",
+                if is_mac { "⌘3" } else { "Ctrl+3" },
+            ),
         ] {
-            if theme::nav_item(ui, icon, title, self.tab == tab, &t).clicked() {
+            if theme::nav_item(ui, icon, title, Some(shortcut), self.tab == tab, &t).clicked() {
                 self.tab = tab;
                 if tab == Tab::Receive {
                     self.poll_clipboard();
@@ -1224,15 +1358,32 @@ fn render_embedded_password_field(
         theme::card(ui, &t, |ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
             theme::field_label(ui, "解密口令", &t);
+
+            let shake_offset = if let Some(start) = self.password_error_at {
+                let elapsed = start.elapsed().as_secs_f32();
+                if elapsed < 0.4 {
+                    ui.ctx().request_repaint();
+                    (elapsed * std::f32::consts::PI * 20.0).sin() * 5.0 * (1.0 - elapsed / 0.4)
+                } else {
+                    0.0
+                }
+            } else {
+                0.0
+            };
+
+            let can_decrypt = !self.receive_password.is_empty();
+            let has_error = self.password_error_msg.is_some();
+
             ui.horizontal(|ui| {
-                let can_decrypt = !self.receive_password.is_empty();
                 let field_width = (ui.available_width() - 140.0).max(120.0);
 
                 let id = ui.make_persistent_id("receive_pwd");
                 let is_focused = ui.memory(|m| m.has_focus(id));
                 let frame = egui::Frame::none()
                     .fill(t.bg_well)
-                    .stroke(if is_focused {
+                    .stroke(if has_error {
+                        Stroke::new(1.5_f32, t.accent_rose)
+                    } else if is_focused {
                         Stroke::new(1.0_f32, t.border_accent)
                     } else {
                         Stroke::new(1.0_f32, t.border_card_light)
@@ -1245,8 +1396,19 @@ fn render_embedded_password_field(
                         bottom: 5.0,
                     });
 
+                let (container_rect, _) = ui.allocate_exact_size(
+                    egui::vec2(field_width, 32.0),
+                    egui::Sense::hover(),
+                );
+                let shifted_rect = container_rect.translate(egui::vec2(shake_offset, 0.0));
+                let mut sub_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(shifted_rect)
+                        .layout(Layout::left_to_right(Align::Center)),
+                );
+
                 let response = frame
-                    .show(ui, |ui| {
+                    .show(&mut sub_ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 4.0;
                             let text_edit = egui::TextEdit::singleline(&mut self.receive_password)
@@ -1256,6 +1418,10 @@ fn render_embedded_password_field(
                                 .frame(false)
                                 .desired_width(field_width - 28.0);
                             let edit_res = ui.add(text_edit);
+                            if edit_res.changed() {
+                                self.password_error_msg = None;
+                                self.password_error_at = None;
+                            }
 
                             let icon = if self.receive_show_password {
                                 Icon::Eye
@@ -1295,7 +1461,9 @@ fn render_embedded_password_field(
                     && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if primary_action(ui, "解密密信", can_decrypt, &t).clicked()
+                    if primary_action(ui, "解密密信", can_decrypt, &t)
+                        .on_hover_text("解密密信 (Cmd/Ctrl + Enter 或 Enter)")
+                        .clicked()
                         || (enter_pressed && can_decrypt)
                     {
                         self.do_receive();
@@ -1305,6 +1473,14 @@ fn render_embedded_password_field(
                     }
                 });
             });
+
+            if let Some(ref err) = self.password_error_msg {
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    theme::icon(ui, Icon::Warning, 13.0, t.accent_rose);
+                    ui.label(RichText::new(err).size(12.5).strong().color(t.accent_rose));
+                });
+            }
         });
     }
 
@@ -1313,7 +1489,74 @@ fn render_embedded_password_field(
         let Some(content) = self.decrypted.clone() else {
             return;
         };
-        theme::section_header(ui, "解密结果", &t, |_| {});
+
+        let should_mask =
+            (self.privacy_blur_enabled && !self.window_focused) || self.manual_mask_hidden;
+
+        theme::section_header(ui, "解密结果", &t, |ui| {
+            let blur_label = if self.privacy_blur_enabled {
+                "失焦防窥: 开启"
+            } else {
+                "失焦防窥: 关闭"
+            };
+            if theme::ghost_button_colored(
+                ui,
+                blur_label,
+                if self.privacy_blur_enabled {
+                    t.text_accent
+                } else {
+                    t.text_muted
+                },
+                &t,
+            )
+            .on_hover_text("点击切换离开窗口时是否自动启用防窥遮蔽")
+            .clicked()
+            {
+                self.privacy_blur_enabled = !self.privacy_blur_enabled;
+            }
+        });
+
+        if should_mask {
+            theme::card(ui, &t, |ui| {
+                ui.set_min_height(180.0);
+                ui.vertical_centered(|ui| {
+                    ui.add_space(20.0);
+                    let icon_color = if self.dark_mode {
+                        Color32::from_rgb(130, 160, 200)
+                    } else {
+                        t.text_accent
+                    };
+                    theme::icon(ui, Icon::EyeClosed, 32.0, icon_color);
+                    ui.add_space(10.0);
+                    ui.label(
+                        RichText::new("隐私保护中 · 内容已遮蔽")
+                            .size(16.0)
+                            .strong()
+                            .color(t.text_primary),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new("检测到窗口失焦或锁屏，已自动为敏感解密内容打上防窥遮罩。")
+                            .size(12.5)
+                            .color(t.text_secondary),
+                    );
+                    ui.add_space(16.0);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+                        if theme::primary_button(ui, "恢复显示", &t).clicked() {
+                            self.window_focused = true;
+                            self.manual_mask_hidden = false;
+                        }
+                        if theme::danger_button(ui, "立即销毁 / 隐藏密文", &t).clicked() {
+                            self.destroy_decrypted();
+                        }
+                    });
+                    ui.add_space(12.0);
+                });
+            });
+            return;
+        }
+
         theme::card(ui, &t, |ui| match content {
             DecryptedContent::Text(plain_text) => {
                 ui.horizontal(|ui| {
@@ -1342,11 +1585,18 @@ fn render_embedded_password_field(
                 theme::hairline(ui, &t);
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if theme::ghost_button(ui, "解密其他密信", &t).clicked() {
-                        self.decrypted = None;
-                        self.receive_file = None;
-                        self.receive_input.clear();
-                        self.receive_password.clear();
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    if theme::danger_button(ui, "立即销毁 / 隐藏密文", &t)
+                        .on_hover_text("彻底清空解密内存并重置接收页面 (Esc)")
+                        .clicked()
+                    {
+                        self.destroy_decrypted();
+                    }
+                    if theme::secondary_button(ui, "防窥遮蔽", &t)
+                        .on_hover_text("立即遮蔽解密内容，防止他人窥视")
+                        .clicked()
+                    {
+                        self.manual_mask_hidden = true;
                     }
                 });
             }
@@ -1438,11 +1688,18 @@ fn render_embedded_password_field(
                 theme::hairline(ui, &t);
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if theme::ghost_button(ui, "解密其他密信", &t).clicked() {
-                        self.decrypted = None;
-                        self.receive_file = None;
-                        self.receive_input.clear();
-                        self.receive_password.clear();
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    if theme::danger_button(ui, "立即销毁 / 隐藏密文", &t)
+                        .on_hover_text("彻底清空解密内存并重置接收页面 (Esc)")
+                        .clicked()
+                    {
+                        self.destroy_decrypted();
+                    }
+                    if theme::secondary_button(ui, "防窥遮蔽", &t)
+                        .on_hover_text("立即遮蔽解密内容，防止他人窥视")
+                        .clicked()
+                    {
+                        self.manual_mask_hidden = true;
                     }
                 });
                 if save {
@@ -1494,60 +1751,72 @@ fn render_embedded_password_field(
         let t = self.theme();
         theme::section_header(ui, "我的公开身份", &t, |_| {});
         theme::card(ui, &t, |ui| {
-            let qr_size = 136.0;
-            ui.horizontal_top(|ui| {
-                let text_width = (ui.available_width() - qr_size - 24.0).max(200.0);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(text_width, qr_size),
-                    Layout::top_down(Align::Min),
-                    |ui| {
-                        ui.set_width(text_width);
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(
-                                    "把公开身份发给对方，对方就能给你发专属密信，不用约定口令。",
-                                )
+            ui.add(
+                egui::Label::new(
+                    RichText::new(
+                        "把公开身份发给对方，对方就能给你发专属密信，无需约定解密口令。",
+                    )
+                    .size(12.5)
+                    .color(t.text_secondary),
+                )
+                .wrap(),
+            );
+            ui.add_space(14.0);
+
+            // 安全卡片式 4 字符分组指纹展示
+            theme::well_frame(&t).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        theme::icon(ui, Icon::Identity, 15.0, t.text_accent);
+                        ui.label(
+                            RichText::new("安全身份指纹")
                                 .size(12.5)
-                                .color(t.text_secondary),
-                            )
-                            .wrap(),
+                                .strong()
+                                .color(t.text_primary),
                         );
-                        ui.add_space(12.0);
-                        theme::field_label(ui, "身份指纹", &t);
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(&self.my_fingerprint)
-                                    .size(14.0)
-                                    .monospace()
-                                    .strong()
-                                    .color(t.text_primary),
-                            )
-                            .on_hover_text("当面或电话核对指纹，可确认身份没有被冒充");
-                            if theme::ghost_button(ui, "复制", &t).clicked() {
-                                self.copy_text(ui.ctx(), self.my_fingerprint.clone(), "已复制指纹");
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if theme::ghost_button(ui, "复制指纹", &t).clicked() {
+                                let text = format_fingerprint_spaced(&self.my_fingerprint);
+                                self.copy_text(ui.ctx(), text, "已复制身份指纹");
                             }
                         });
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
-                            if theme::primary_button(ui, "复制公开身份", &t).clicked() {
-                                self.copy_text(
-                                    ui.ctx(),
-                                    self.identity.1.clone(),
-                                    "已复制公开身份，发给对方即可",
-                                );
-                            }
-                            if theme::secondary_button(ui, "保存二维码", &t).clicked() {
-                                self.save_qr();
-                            }
-                        });
-                    },
-                );
-                ui.add_space(12.0);
-                egui::Frame::none()
-                    .stroke(Stroke::new(1.0_f32, t.border_card))
-                    .rounding(10.0)
-                    .show(ui, |ui| theme::render_qr(ui, &self.identity.1, qr_size));
+                    });
+                    ui.add_space(6.0);
+                    let spaced_fp = format_fingerprint_spaced(&self.my_fingerprint);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(&spaced_fp)
+                                .size(20.0)
+                                .monospace()
+                                .strong()
+                                .color(t.text_primary),
+                        )
+                        .on_hover_text("当面或电话语音核对指纹，可确认身份没有被冒充");
+                    });
+                    ui.add_space(4.0);
+                    theme::caption(
+                        ui,
+                        "当面或语音电话核对以上 4 组字符，即可确认双方公钥未被冒充或篡改。",
+                        &t,
+                    );
+                });
             });
+
+            ui.add_space(14.0);
+            ui.horizontal(|ui| {
+                if theme::primary_button(ui, "复制公开身份", &t).clicked() {
+                    self.copy_text(
+                        ui.ctx(),
+                        self.identity.1.clone(),
+                        "已复制公开身份，发给对方即可",
+                    );
+                }
+                if theme::secondary_button(ui, "查看/保存二维码", &t).clicked() {
+                    self.show_qr_dialog = true;
+                }
+            });
+
             ui.add_space(12.0);
             theme::hairline(ui, &t);
             ui.add_space(6.0);
@@ -1567,6 +1836,46 @@ fn render_embedded_password_field(
                 );
             });
         });
+    }
+
+    fn render_qr_dialog(&mut self, ctx: &egui::Context) {
+        let t = self.theme();
+        let mut close = false;
+        egui::Window::new("身份二维码")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .frame(
+                egui::Frame::window(&ctx.style())
+                    .fill(t.bg_card)
+                    .stroke(Stroke::new(1.0_f32, t.border_card))
+                    .inner_margin(Margin::same(18.0)),
+            )
+            .show(ctx, |ui| {
+                ui.set_width(220.0);
+                ui.vertical_centered(|ui| {
+                    theme::caption(ui, "扫描二维码获取公开身份", &t);
+                    ui.add_space(12.0);
+                    egui::Frame::none()
+                        .stroke(Stroke::new(1.0_f32, t.border_card))
+                        .rounding(8.0)
+                        .show(ui, |ui| {
+                            theme::render_qr(ui, &self.identity.1, 160.0);
+                        });
+                    ui.add_space(16.0);
+                    ui.horizontal(|ui| {
+                        if theme::primary_button(ui, "保存图片", &t).clicked() {
+                            self.save_qr();
+                        }
+                        if theme::secondary_button(ui, "关闭", &t).clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            });
+        if close {
+            self.show_qr_dialog = false;
+        }
     }
 
     fn save_qr(&mut self) {

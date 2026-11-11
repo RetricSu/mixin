@@ -725,6 +725,7 @@ pub fn nav_item(
     ui: &mut Ui,
     icon: Icon,
     label: &str,
+    shortcut: Option<&str>,
     selected: bool,
     t: &ThemeColors,
 ) -> egui::Response {
@@ -761,6 +762,21 @@ pub fn nav_item(
             painter.galley(pos + egui::vec2(0.35, 0.0), galley.clone(), color);
         }
         painter.galley(pos, galley, color);
+
+        if let Some(sc) = shortcut {
+            let sc_font = egui::FontId::proportional(11.0);
+            let sc_color = if selected {
+                t.text_accent.linear_multiply(0.7)
+            } else {
+                t.text_muted
+            };
+            let sc_galley = painter.layout_no_wrap(sc.to_owned(), sc_font, sc_color);
+            let sc_pos = Pos2::new(
+                rect.right() - sc_galley.size().x - 10.0,
+                rect.center().y - sc_galley.size().y / 2.0,
+            );
+            painter.galley(sc_pos, sc_galley, sc_color);
+        }
     }
     focus_outline(ui, &response, t);
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
