@@ -101,6 +101,7 @@ struct App {
     recipient_custom_key: String,
     generated_cipher: String,
     generated_summary: Option<String>,
+    generated_show_password: bool,
 
     // --- 接收状态 ---
     receive_file: Option<LoadedCipherFile>,
@@ -108,6 +109,10 @@ struct App {
     receive_password: String,
     receive_show_password: bool,
     decrypted: Option<DecryptedContent>,
+    clipboard_cipher: Option<String>,
+    last_clipboard_check: Instant,
+    clipboard_ignored: Option<String>,
+    focus_receive_password: bool,
 
     // --- 身份与联系人状态 ---
     identity: (String, String), // (private_pem, public_pem)
@@ -147,12 +152,17 @@ impl App {
             recipient_custom_key: String::new(),
             generated_cipher: String::new(),
             generated_summary: None,
+            generated_show_password: false,
 
             receive_file: None,
             receive_input: String::new(),
             receive_password: String::new(),
             receive_show_password: false,
             decrypted: None,
+            clipboard_cipher: None,
+            last_clipboard_check: Instant::now(),
+            clipboard_ignored: None,
+            focus_receive_password: false,
 
             identity,
             my_fingerprint,
@@ -217,9 +227,12 @@ impl App {
                     size,
                     path: Some(path),
                 });
-                self.receive_input = trimmed;
+                self.receive_input = trimmed.clone();
                 self.decrypted = None;
                 self.receive_password.clear();
+                if trimmed.starts_with(PREFIX) {
+                    self.focus_receive_password = true;
+                }
                 self.tab = Tab::Receive;
                 self.notify("已载入密信文件", ToastKind::Success);
             }
@@ -285,7 +298,6 @@ impl App {
             None
         }
     }
-
 
     fn get_active_recipient_key(&self) -> Option<String> {
         if let Some(idx) = self.selected_contact_idx {
@@ -370,6 +382,7 @@ impl App {
         match result {
             Ok(cipher) => {
                 self.generated_cipher = cipher;
+                self.generated_show_password = false;
                 let algo_name = match self.send_mode {
                     SendMode::Password => "使用口令接收",
                     SendMode::Contact => "联系人专属接收",
@@ -408,8 +421,16 @@ impl App {
                                     let meta = packet.meta.unwrap_or_else(|| {
                                         let (name, ext) = if let Some(rf) = &self.receive_file {
                                             let p = Path::new(&rf.name);
-                                            let stem = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                                            let ext = Path::new(&stem).extension().unwrap_or_default().to_string_lossy().to_string();
+                                            let stem = p
+                                                .file_stem()
+                                                .unwrap_or_default()
+                                                .to_string_lossy()
+                                                .to_string();
+                                            let ext = Path::new(&stem)
+                                                .extension()
+                                                .unwrap_or_default()
+                                                .to_string_lossy()
+                                                .to_string();
                                             (stem, ext)
                                         } else {
                                             ("解密文件".into(), "bin".into())
@@ -442,8 +463,16 @@ impl App {
                         if is_binary || self.receive_file.is_some() {
                             let (name, ext) = if let Some(rf) = &self.receive_file {
                                 let p = Path::new(&rf.name);
-                                let stem = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                                let ext = Path::new(&stem).extension().unwrap_or_default().to_string_lossy().to_string();
+                                let stem = p
+                                    .file_stem()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string();
+                                let ext = Path::new(&stem)
+                                    .extension()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string();
                                 (stem, ext)
                             } else {
                                 ("解密文件".into(), "bin".into())
@@ -468,7 +497,147 @@ impl App {
                 }
             }
             Err(e) => {
+                self.focus_receive_password = true;
                 self.notify(format!("解密失败：{e}"), ToastKind::Error);
+            }
+        }
+    }
+
+    pub(crate) fn delivery_guidance(&self, is_file: bool) -> String {
+        match self.send_mode {
+            SendMode::Password => {
+                if is_file {
+                    "我通过「密信」向你发送了一个加密文件。\n\
+                     【解密指引】\n\
+                     1. 请使用「密信」桌面端，将收到的 .mixin 文件直接拖入软件或在接收页打开。\n\
+                     2. 解密口令已通过单独渠道发送，输入口令即可解密并保存原文件。\n\
+                     （安全提醒：密信与口令请分流发送，勿在同一会话中合并转发）"
+                        .to_string()
+                } else {
+                    format!(
+                        "我通过「密信」向你发送了一条加密消息：\n\
+                         ----------------------------------------\n\
+                         {}\n\
+                         ----------------------------------------\n\
+                         【解密指引】\n\
+                         1. 打开「密信」客户端，进入「接收密信」页面（将自动识别剪贴板或手动粘贴）。\n\
+                         2. 解密口令已通过单独安全渠道发送，输入口令即可解密。\n\
+                         （安全提醒：密信与口令请分流发送，勿在同一会话中合并转发）",
+                        self.generated_cipher
+                    )
+                }
+            }
+            SendMode::Contact => {
+                if is_file {
+                    "我通过「密信」向你发送了一个专属加密文件。\n\
+                     【解密指引】\n\
+                     请使用「密信」客户端打开该 .mixin 文件，只有你的本机身份能够解开，无需口令。"
+                        .to_string()
+                } else {
+                    format!(
+                        "我通过「密信」向你发送了一条专属加密消息：\n\
+                         ----------------------------------------\n\
+                         {}\n\
+                         ----------------------------------------\n\
+                         【解密指引】\n\
+                         请在你的电脑上打开「密信」客户端进入接收页，只有你的本机身份能够解开，无需口令。",
+                        self.generated_cipher
+                    )
+                }
+            }
+        }
+    }
+
+    pub(crate) fn reveal_saved_file(&mut self) -> Result<(), String> {
+        let path = match &self.decrypted {
+            Some(DecryptedContent::File {
+                saved_path: Some(path),
+                ..
+            }) => path.clone(),
+            _ => {
+                let err = "文件尚未保存到本地".to_string();
+                self.notify(&err, ToastKind::Warning);
+                return Err(err);
+            }
+        };
+        match ui::reveal_in_file_manager(&path) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.notify(&e, ToastKind::Error);
+                Err(e)
+            }
+        }
+    }
+
+    pub(crate) fn open_saved_file(&mut self) -> Result<(), String> {
+        let path = match &self.decrypted {
+            Some(DecryptedContent::File {
+                saved_path: Some(path),
+                ..
+            }) => path.clone(),
+            _ => {
+                let err = "文件尚未保存到本地".to_string();
+                self.notify(&err, ToastKind::Warning);
+                return Err(err);
+            }
+        };
+        match ui::open_file_native(&path) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.notify(&e, ToastKind::Error);
+                Err(e)
+            }
+        }
+    }
+
+    pub(crate) fn check_clipboard_for_cipher(&mut self, ctx: &egui::Context) {
+        if self.tab != Tab::Receive {
+            return;
+        }
+        if !self.receive_input.trim().is_empty()
+            || self.receive_file.is_some()
+            || self.decrypted.is_some()
+        {
+            self.clipboard_cipher = None;
+            return;
+        }
+
+        let is_window_focused = ctx.input(|i| {
+            i.raw
+                .events
+                .iter()
+                .any(|e| matches!(e, egui::Event::WindowFocused(true)))
+        });
+        let elapsed = self.last_clipboard_check.elapsed();
+        if is_window_focused || elapsed >= std::time::Duration::from_millis(800) {
+            self.last_clipboard_check = Instant::now();
+            self.poll_clipboard();
+        }
+    }
+
+    pub(crate) fn poll_clipboard(&mut self) {
+        if !self.receive_input.trim().is_empty()
+            || self.receive_file.is_some()
+            || self.decrypted.is_some()
+        {
+            self.clipboard_cipher = None;
+            return;
+        }
+        if let Ok(mut cb) = arboard::Clipboard::new() {
+            if let Ok(text) = cb.get_text() {
+                let trimmed = text.trim();
+                if (trimmed.starts_with(PREFIX) || trimmed.starts_with(IDENTITY_PREFIX))
+                    && trimmed.len() <= 10_000_000
+                {
+                    if self.clipboard_ignored.as_deref() != Some(trimmed) {
+                        self.clipboard_cipher = Some(trimmed.to_string());
+                    }
+                } else {
+                    self.clipboard_cipher = None;
+                    if self.clipboard_ignored.is_some() {
+                        self.clipboard_ignored = None;
+                    }
+                }
             }
         }
     }
@@ -506,6 +675,10 @@ impl eframe::App for App {
         }
 
         self.render_ui(ctx);
+
+        if self.tab == Tab::Receive {
+            self.check_clipboard_for_cipher(ctx);
+        }
 
         // Repaint if toast is alive
         if self.toast.is_some() {

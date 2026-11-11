@@ -72,7 +72,12 @@ fn render(
 fn layouts_fit_native_window_sizes_in_both_themes() {
     let identity = generate_identity().unwrap();
     for dark in [false, true] {
-        for (width, height) in [(720.0, 520.0), (780.0, 540.0), (800.0, 640.0), (1040.0, 800.0)] {
+        for (width, height) in [
+            (720.0, 520.0),
+            (780.0, 540.0),
+            (800.0, 640.0),
+            (1040.0, 800.0),
+        ] {
             for state in [
                 "send",
                 "file",
@@ -500,6 +505,21 @@ fn file_encryption_and_decryption_ui_lifecycle() {
     text_center(&output, "保存文件");
     text_center(&output, "解密其他密信");
 
+    // Simulate saving file: saved actions appear
+    let saved_dest = std::env::temp_dir().join("annual_report_saved.pdf");
+    fs::write(&saved_dest, dummy_file_bytes).unwrap();
+    if let Some(DecryptedContent::File {
+        ref mut saved_path, ..
+    }) = app.decrypted
+    {
+        *saved_path = Some(saved_dest.clone());
+    }
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "直接打开文件");
+    text_center(&output, "在文件夹中显示");
+    text_center(&output, "另存为");
+    let _ = fs::remove_file(&saved_dest);
+
     // 5. Clicking "解密其他密信" resets the receive state completely
     click(&mut app, &ctx, text_center(&output, "解密其他密信"));
     assert!(app.decrypted.is_none());
@@ -532,5 +552,269 @@ fn binary_payload_legacy_fallback_never_shows_bare_text() {
             panic!("Binary fallback must NOT decode to bare lossy text");
         }
         None => panic!("Decryption failed"),
+    }
+}
+
+#[test]
+fn password_review_card_and_delivery_guidance() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+    app.send_text = "重要机密口令测试".into();
+    app.send_password = "my-secret-passphrase".into();
+    app.send_confirm = app.send_password.clone();
+
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+    theme::apply_theme(&ctx, false);
+
+    app.do_send();
+    assert!(!app.generated_cipher.is_empty());
+    assert!(!app.generated_show_password);
+
+    // Initial generated output view
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "本次加密口令");
+    text_center(&output, "复制口令");
+    text_center(&output, "复制分流指引");
+    text_center(&output, "显示");
+
+    // Initially, masked password should appear in text shapes (contains bullet dots), not plaintext
+    let shapes_text: Vec<_> = output
+        .shapes
+        .iter()
+        .filter_map(|s| {
+            if let egui::Shape::Text(t) = &s.shape {
+                Some(t.galley.job.text.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(shapes_text.iter().any(|t| t.contains('●')));
+    assert!(!shapes_text.iter().any(|t| t == "my-secret-passphrase"));
+
+    // Click "显示" to toggle password visibility
+    let show_pt = text_center(&output, "显示");
+    click(&mut app, &ctx, show_pt);
+    assert!(app.generated_show_password);
+
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "隐藏");
+    let shapes_text_after: Vec<_> = output
+        .shapes
+        .iter()
+        .filter_map(|s| {
+            if let egui::Shape::Text(t) = &s.shape {
+                Some(t.galley.job.text.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert!(shapes_text_after
+        .iter()
+        .any(|t| t == "my-secret-passphrase"));
+
+    // Click "复制口令"
+    let copy_pass_pt = text_center(&output, "复制口令");
+    click(&mut app, &ctx, copy_pass_pt);
+    assert!(matches!(&app.toast, Some(t) if t.message.contains("加密口令已复制")));
+
+    // Click "复制分流指引"
+    let copy_guide_pt = text_center(&output, "复制分流指引");
+    click(&mut app, &ctx, copy_guide_pt);
+    assert!(matches!(&app.toast, Some(t) if t.message.contains("密信分流指引已复制")));
+    let guidance = app.delivery_guidance(false);
+    assert!(guidance.contains(&app.generated_cipher));
+    assert!(guidance.contains("分流发送"));
+
+    // Test file mode delivery guidance
+    let file_guidance = app.delivery_guidance(true);
+    assert!(file_guidance.contains(".mixin"));
+    assert!(file_guidance.contains("分流发送"));
+}
+
+#[test]
+fn file_decryption_saved_actions_and_system_integration() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+    app.tab = Tab::Receive;
+
+    let temp_file = std::env::temp_dir().join("test_saved_result.pdf");
+    fs::write(&temp_file, b"sample pdf content").unwrap();
+
+    // 1. When not yet saved (saved_path is None), actions shouldn't show
+    app.decrypted = Some(DecryptedContent::File {
+        meta: FileMeta {
+            name: "test_saved_result".into(),
+            extension: "pdf".into(),
+            content_type: "application/pdf".into(),
+        },
+        bytes: b"sample pdf content".to_vec(),
+        saved_path: None,
+    });
+
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+    theme::apply_theme(&ctx, false);
+
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "保存文件");
+    assert!(!output.shapes.iter().any(|s| {
+        if let egui::Shape::Text(t) = &s.shape {
+            t.galley.job.text.contains("直接打开文件")
+                || t.galley.job.text.contains("在文件夹中显示")
+        } else {
+            false
+        }
+    }));
+
+    // 2. When saved_path is Some(temp_file), both actions must be visible
+    app.decrypted = Some(DecryptedContent::File {
+        meta: FileMeta {
+            name: "test_saved_result".into(),
+            extension: "pdf".into(),
+            content_type: "application/pdf".into(),
+        },
+        bytes: b"sample pdf content".to_vec(),
+        saved_path: Some(temp_file.clone()),
+    });
+
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "直接打开文件");
+    text_center(&output, "在文件夹中显示");
+    text_center(&output, "另存为");
+
+    // Native helpers should succeed when file exists
+    assert!(ui::reveal_in_file_manager(&temp_file).is_ok());
+    assert!(ui::open_file_native(&temp_file).is_ok());
+    assert!(app.reveal_saved_file().is_ok());
+    assert!(app.open_saved_file().is_ok());
+
+    let _ = fs::remove_file(&temp_file);
+    // When file does not exist, helpers return Err
+    assert!(ui::reveal_in_file_manager(&temp_file).is_err());
+    assert!(ui::open_file_native(&temp_file).is_err());
+}
+
+#[test]
+fn clipboard_detection_and_auto_fill_flow() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+    app.tab = Tab::Receive;
+
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+    theme::apply_theme(&ctx, false);
+
+    let sample_cipher = "MX1.abcdef1234567890".to_string();
+    app.clipboard_cipher = Some(sample_cipher.clone());
+
+    // When clipboard has cipher and input is empty, capsule is rendered
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "检测到剪贴板中的密信");
+    text_center(&output, "一键填入");
+    text_center(&output, "忽略");
+
+    // Click "一键填入"
+    let fill_pt = text_center(&output, "一键填入");
+    click(&mut app, &ctx, fill_pt);
+
+    assert_eq!(app.receive_input, sample_cipher);
+    assert!(app.clipboard_cipher.is_none());
+    // In the click turn, focus was transferred directly to the password widget in the newly rendered card
+    assert!(ctx.memory(|m| m.focused().is_some()));
+    assert!(matches!(&app.toast, Some(t) if t.message.contains("已载入剪贴板中的密信")));
+
+    // On next frame, capsule is gone and password decrypt card is rendered
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "口令密信");
+    text_center(&output, "解密口令");
+    text_center(&output, "解密密信");
+    assert!(!output.shapes.iter().any(|s| {
+        if let egui::Shape::Text(t) = &s.shape {
+            t.galley.job.text.contains("检测到剪贴板中的密信")
+        } else {
+            false
+        }
+    }));
+
+    // Test "忽略" action
+    app.receive_input.clear();
+    app.clipboard_cipher = Some(sample_cipher.clone());
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    let ignore_pt = text_center(&output, "忽略");
+    click(&mut app, &ctx, ignore_pt);
+
+    assert!(app.clipboard_cipher.is_none());
+    assert_eq!(
+        app.clipboard_ignored.as_deref(),
+        Some(sample_cipher.as_str())
+    );
+}
+
+#[test]
+fn enter_key_triggers_password_decryption_flow() {
+    let identity = generate_identity().unwrap();
+    let mut app = fixture(&identity);
+    app.send_text = "通过回车直接解密的机密消息".into();
+    app.send_password = "enter-pass-phrase".into();
+    app.send_confirm = app.send_password.clone();
+    app.do_send();
+    let cipher = app.generated_cipher.clone();
+
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+    theme::apply_theme(&ctx, false);
+
+    // Switch to receive tab and paste cipher
+    app.tab = Tab::Receive;
+    app.receive_input = cipher;
+    app.focus_receive_password = true;
+
+    // First render settles focus on the password field
+    let output = render(&mut app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output, "解密口令");
+    assert!(!app.focus_receive_password); // focus was consumed
+
+    // Enter without password gives a prompt toast
+    render(
+        &mut app,
+        &ctx,
+        1040.0,
+        800.0,
+        vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert!(app.decrypted.is_none());
+    assert!(matches!(&app.toast, Some(t) if t.message.contains("请输入解密口令")));
+
+    // Fill password and press Enter
+    app.receive_password = "enter-pass-phrase".into();
+    render(
+        &mut app,
+        &ctx,
+        1040.0,
+        800.0,
+        vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+
+    // Decryption must succeed!
+    match &app.decrypted {
+        Some(DecryptedContent::Text(text)) => {
+            assert_eq!(text, "通过回车直接解密的机密消息");
+        }
+        _ => panic!("Expected successful text decryption on Enter key"),
     }
 }

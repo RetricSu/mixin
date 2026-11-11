@@ -1,7 +1,7 @@
 //! Window layout and views. Logic (encrypt, decrypt, validation) lives in `main.rs`.
 use super::*;
 use crate::theme::{self, Icon};
-use eframe::egui::{Align, Align2, Color32, Layout, Margin, RichText, Stroke};
+use eframe::egui::{Align, Align2, Color32, Layout, Margin, RichText, Rounding, Stroke};
 
 const SIDEBAR_WIDTH: f32 = 176.0;
 const CONTENT_MAX_WIDTH: f32 = 640.0;
@@ -21,7 +21,7 @@ impl App {
             .frame(
                 egui::Frame::none()
                     .fill(t.bg_header)
-                    .stroke(Stroke::new(1.0, t.border_card))
+                    .stroke(Stroke::new(1.0_f32, t.border_card))
                     .inner_margin(Margin {
                         left: 12.0,
                         right: 12.0,
@@ -32,16 +32,12 @@ impl App {
             .show(ctx, |ui| self.render_sidebar(ui));
 
         let central = egui::CentralPanel::default()
-            .frame(
-                egui::Frame::none()
-                    .fill(t.bg_canvas)
-                    .inner_margin(Margin {
-                        left: 24.0,
-                        right: 24.0,
-                        top: 14.0,
-                        bottom: 12.0,
-                    }),
-            )
+            .frame(egui::Frame::none().fill(t.bg_canvas).inner_margin(Margin {
+                left: 24.0,
+                right: 24.0,
+                top: 14.0,
+                bottom: 12.0,
+            }))
             .show(ctx, |ui| {
                 let width = ui.available_width().min(CONTENT_MAX_WIDTH);
                 let inset = ((ui.available_width() - width) / 2.0).max(0.0);
@@ -73,12 +69,18 @@ impl App {
         };
         ui.horizontal(|ui| {
             ui.set_min_height(30.0);
-            ui.label(RichText::new(title).size(20.0).strong().color(t.text_primary));
+            ui.label(
+                RichText::new(title)
+                    .size(20.0)
+                    .strong()
+                    .color(t.text_primary),
+            );
             if self.tab == Tab::Send && !self.generated_cipher.is_empty() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if theme::ghost_button(ui, "返回编辑", &t).clicked() {
                         self.generated_cipher.clear();
                         self.generated_summary = None;
+                        self.generated_show_password = false;
                     }
                 });
             } else if self.tab == Tab::Receive && self.decrypted.is_some() {
@@ -88,6 +90,8 @@ impl App {
                         self.receive_file = None;
                         self.receive_input.clear();
                         self.receive_password.clear();
+                        self.focus_receive_password = false;
+                        self.clipboard_cipher = None;
                     }
                 });
             }
@@ -102,12 +106,29 @@ impl App {
             let painter = ui.painter();
             painter.rect_filled(rect, 7.0, t.accent_emerald);
             let envelope = rect.shrink2(egui::vec2(6.5, 8.5));
-            let stroke = Stroke::new(1.4, Color32::WHITE);
+            let stroke = Stroke::new(1.4_f32, Color32::WHITE);
             painter.rect_stroke(envelope, 1.5, stroke);
-            painter.line_segment([envelope.left_top(), envelope.center() + egui::vec2(0.0, 1.0)], stroke);
-            painter.line_segment([envelope.right_top(), envelope.center() + egui::vec2(0.0, 1.0)], stroke);
+            painter.line_segment(
+                [
+                    envelope.left_top(),
+                    envelope.center() + egui::vec2(0.0, 1.0),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    envelope.right_top(),
+                    envelope.center() + egui::vec2(0.0, 1.0),
+                ],
+                stroke,
+            );
             ui.add_space(2.0);
-            ui.label(RichText::new("密信").size(17.0).strong().color(t.text_primary));
+            ui.label(
+                RichText::new("密信")
+                    .size(17.0)
+                    .strong()
+                    .color(t.text_primary),
+            );
         });
         ui.add_space(22.0);
 
@@ -119,6 +140,9 @@ impl App {
         ] {
             if theme::nav_item(ui, icon, title, self.tab == tab, &t).clicked() {
                 self.tab = tab;
+                if tab == Tab::Receive {
+                    self.poll_clipboard();
+                }
             }
         }
 
@@ -139,10 +163,8 @@ impl App {
                             [(false, Icon::Sun, "浅色"), (true, Icon::Moon, "深色")]
                         {
                             let selected = dark == value;
-                            let (rect, response) = ui.allocate_exact_size(
-                                egui::vec2(half, 26.0),
-                                egui::Sense::click(),
-                            );
+                            let (rect, response) = ui
+                                .allocate_exact_size(egui::vec2(half, 26.0), egui::Sense::click());
                             let fill = if selected {
                                 t.bg_card
                             } else if response.hovered() {
@@ -155,12 +177,16 @@ impl App {
                                 theme::RADIUS - 1.0,
                                 fill,
                                 if selected {
-                                    Stroke::new(1.0, t.border_card)
+                                    Stroke::new(1.0_f32, t.border_card)
                                 } else {
                                     Stroke::NONE
                                 },
                             );
-                            let color = if selected { t.text_primary } else { t.text_muted };
+                            let color = if selected {
+                                t.text_primary
+                            } else {
+                                t.text_muted
+                            };
                             let galley = ui.painter().layout_no_wrap(
                                 label.to_owned(),
                                 egui::FontId::proportional(12.0),
@@ -230,7 +256,7 @@ impl App {
                 ui.multiply_opacity(opacity);
                 egui::Frame::none()
                     .fill(t.bg_card)
-                    .stroke(Stroke::new(1.0, t.border_card_light))
+                    .stroke(Stroke::new(1.0_f32, t.border_card_light))
                     .rounding(10.0)
                     .inner_margin(Margin {
                         left: 12.0,
@@ -251,7 +277,9 @@ impl App {
                             theme::icon(ui, icon, 16.0, color);
                             ui.add(
                                 egui::Label::new(
-                                    RichText::new(&toast.message).size(13.0).color(t.text_primary),
+                                    RichText::new(&toast.message)
+                                        .size(13.0)
+                                        .color(t.text_primary),
                                 )
                                 .wrap(),
                             );
@@ -297,18 +325,26 @@ impl App {
             Color32::from_rgba_unmultiplied(bg.r(), bg.g(), bg.b(), 235),
         );
         let zone = screen.shrink(18.0);
-        painter.rect_stroke(zone, 14.0, Stroke::new(1.5, t.border_accent));
+        painter.rect_stroke(zone, 14.0, Stroke::new(1.5_f32, t.border_accent));
         let center = zone.center();
         theme::paint_icon(
             &painter,
             egui::Rect::from_center_size(center - egui::vec2(0.0, 30.0), egui::vec2(32.0, 32.0)),
-            if is_mixin { Icon::Receive } else { Icon::Upload },
+            if is_mixin {
+                Icon::Receive
+            } else {
+                Icon::Upload
+            },
             t.text_accent,
         );
         painter.text(
             center + egui::vec2(0.0, 6.0),
             Align2::CENTER_CENTER,
-            if is_mixin { "松开以打开密信" } else { "松开以加密这个文件" },
+            if is_mixin {
+                "松开以打开密信"
+            } else {
+                "松开以加密这个文件"
+            },
             egui::FontId::proportional(16.0),
             t.text_primary,
         );
@@ -405,30 +441,32 @@ impl App {
 
     fn render_payload_input(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
-        theme::paper_frame(&t).inner_margin(Margin::symmetric(14.0, 10.0)).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            if self.payload_type == PayloadType::File {
-                self.render_file_picker(ui);
-                return;
-            }
-            ui.add(
-                egui::TextEdit::multiline(&mut self.send_text)
-                    .hint_text("写下或粘贴需要保密的内容…")
-                    .frame(false)
-                    .desired_rows(2)
-                    .min_size(egui::vec2(0.0, 48.0))
-                    .margin(egui::vec2(0.0, 2.0))
-                    .desired_width(f32::INFINITY),
-            );
-            ui.add_space(2.0);
-            if !self.send_text.is_empty() {
-                ui.horizontal(|ui| {
-                    if theme::ghost_button(ui, "清空", &t).clicked() {
-                        self.send_text.clear();
-                    }
-                });
-            }
-        });
+        theme::paper_frame(&t)
+            .inner_margin(Margin::symmetric(14.0, 10.0))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                if self.payload_type == PayloadType::File {
+                    self.render_file_picker(ui);
+                    return;
+                }
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.send_text)
+                        .hint_text("写下或粘贴需要保密的内容…")
+                        .frame(false)
+                        .desired_rows(2)
+                        .min_size(egui::vec2(0.0, 48.0))
+                        .margin(egui::vec2(0.0, 2.0))
+                        .desired_width(f32::INFINITY),
+                );
+                ui.add_space(2.0);
+                if !self.send_text.is_empty() {
+                    ui.horizontal(|ui| {
+                        if theme::ghost_button(ui, "清空", &t).clicked() {
+                            self.send_text.clear();
+                        }
+                    });
+                }
+            });
     }
 
     fn render_file_picker(&mut self, ui: &mut egui::Ui) {
@@ -479,11 +517,19 @@ impl App {
             egui::Sense::hover(),
         );
         dashed_rect(ui.painter(), rect, t.border_card_light);
-        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(8.0)).layout(Layout::top_down(Align::Center)));
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect.shrink(8.0))
+                .layout(Layout::top_down(Align::Center)),
+        );
         child.add_space(((rect.height() - 92.0) / 2.0).max(0.0));
         theme::icon(&mut child, Icon::Upload, 20.0, t.text_muted);
         child.add_space(2.0);
-        child.label(RichText::new("把文件拖到这里").size(13.5).color(t.text_secondary));
+        child.label(
+            RichText::new("把文件拖到这里")
+                .size(13.5)
+                .color(t.text_secondary),
+        );
         child.add_space(2.0);
         if theme::secondary_button(&mut child, "选择文件", &t).clicked() {
             if let Some(path) = rfd::FileDialog::new().pick_file() {
@@ -535,71 +581,76 @@ impl App {
 
     fn render_recipient_selector(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
-        theme::card_frame(&t).inner_margin(Margin::symmetric(14.0, 10.0)).show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal(|ui| {
-                theme::field_label(ui, "接收人", &t);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if theme::ghost_button_colored(ui, "添加联系人", t.text_accent, &t).clicked() {
-                        self.tab = Tab::Identity;
-                        self.show_add_contact_dialog = true;
-                        self.focus_new_contact = true;
-                    }
-                });
-            });
-            ui.add_space(2.0);
-
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-                for i in 0..self.contacts.len() {
-                    let selected = self.selected_contact_idx == Some(i);
-                    if chip(ui, &self.contacts[i].name, selected, &t).clicked() {
-                        self.selected_contact_idx = Some(i);
-                    }
-                }
-                let custom = self.selected_contact_idx.is_none();
-                if chip(ui, "粘贴公开身份", custom, &t).clicked() {
-                    self.selected_contact_idx = None;
-                }
-            });
-            ui.add_space(6.0);
-
-            if let Some(contact) = self.selected_contact_idx.and_then(|i| self.contacts.get(i)) {
-                theme::well_frame(&t).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        theme::field_label(ui, "身份指纹", &t);
-                        ui.label(
-                            RichText::new(&contact.fingerprint)
-                                .monospace()
-                                .color(t.text_primary),
-                        );
+        theme::card_frame(&t)
+            .inner_margin(Margin::symmetric(14.0, 10.0))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    theme::field_label(ui, "接收人", &t);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if theme::ghost_button_colored(ui, "添加联系人", t.text_accent, &t)
+                            .clicked()
+                        {
+                            self.tab = Tab::Identity;
+                            self.show_add_contact_dialog = true;
+                            self.focus_new_contact = true;
+                        }
                     });
                 });
-                return;
-            }
-
-            theme::caption(ui, "对方的公开身份代码", &t);
-            ui.add(
-                egui::TextEdit::multiline(&mut self.recipient_custom_key)
-                    .hint_text("-----BEGIN PUBLIC KEY-----")
-                    .font(egui::TextStyle::Monospace)
-                    .margin(egui::vec2(8.0, 5.0))
-                    .desired_rows(2)
-                    .desired_width(f32::INFINITY),
-            );
-            if !self.recipient_custom_key.trim().is_empty() {
                 ui.add_space(2.0);
-                match validate_public_key(&self.recipient_custom_key) {
-                    Ok(fp) => {
-                        theme::status_label(ui, &format!("有效 · 指纹 {fp}"), t.text_accent);
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+                    for i in 0..self.contacts.len() {
+                        let selected = self.selected_contact_idx == Some(i);
+                        if chip(ui, &self.contacts[i].name, selected, &t).clicked() {
+                            self.selected_contact_idx = Some(i);
+                        }
                     }
-                    Err(e) => {
-                        theme::status_label(ui, &e.to_string(), t.accent_rose);
+                    let custom = self.selected_contact_idx.is_none();
+                    if chip(ui, "粘贴公开身份", custom, &t).clicked() {
+                        self.selected_contact_idx = None;
+                    }
+                });
+                ui.add_space(6.0);
+
+                if let Some(contact) = self.selected_contact_idx.and_then(|i| self.contacts.get(i))
+                {
+                    theme::well_frame(&t).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            theme::field_label(ui, "身份指纹", &t);
+                            ui.label(
+                                RichText::new(&contact.fingerprint)
+                                    .monospace()
+                                    .color(t.text_primary),
+                            );
+                        });
+                    });
+                    return;
+                }
+
+                theme::caption(ui, "对方的公开身份代码", &t);
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.recipient_custom_key)
+                        .hint_text("-----BEGIN PUBLIC KEY-----")
+                        .font(egui::TextStyle::Monospace)
+                        .margin(egui::vec2(8.0, 5.0))
+                        .desired_rows(2)
+                        .desired_width(f32::INFINITY),
+                );
+                if !self.recipient_custom_key.trim().is_empty() {
+                    ui.add_space(2.0);
+                    match validate_public_key(&self.recipient_custom_key) {
+                        Ok(fp) => {
+                            theme::status_label(ui, &format!("有效 · 指纹 {fp}"), t.text_accent);
+                        }
+                        Err(e) => {
+                            theme::status_label(ui, &e.to_string(), t.accent_rose);
+                        }
                     }
                 }
-            }
-        });
+            });
     }
 
     fn render_generated_output(&mut self, ui: &mut egui::Ui) {
@@ -641,20 +692,62 @@ impl App {
                 .color(t.text_secondary),
             );
             if self.send_mode == SendMode::Password {
-                ui.add_space(8.0);
+                ui.add_space(10.0);
                 theme::well_frame(&t).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        theme::icon(ui, Icon::Lock, 14.0, t.accent_amber);
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new("口令请通过另一渠道告知对方，不要和密信放在一起发送。")
-                                    .size(12.5)
-                                    .color(t.text_secondary),
-                            )
-                            .wrap(),
+                        theme::icon(ui, Icon::Lock, 15.0, t.accent_amber);
+                        ui.label(
+                            RichText::new("本次加密口令")
+                                .size(13.0)
+                                .strong()
+                                .color(t.text_primary),
                         );
+                        ui.add_space(4.0);
+                        let masked = "●".repeat(self.send_password.chars().count().max(6));
+                        let display_pwd = if self.generated_show_password {
+                            &self.send_password
+                        } else {
+                            &masked
+                        };
+                        ui.label(RichText::new(display_pwd).monospace().size(13.0).color(
+                            if self.generated_show_password {
+                                t.text_accent
+                            } else {
+                                t.text_secondary
+                            },
+                        ));
+
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if theme::ghost_button(ui, "复制口令", &t)
+                                .on_hover_text("复制解密口令")
+                                .clicked()
+                            {
+                                self.copy_text(
+                                    ui.ctx(),
+                                    self.send_password.clone(),
+                                    "加密口令已复制，请通过另一渠道告知对方",
+                                );
+                            }
+                            let toggle_label = if self.generated_show_password {
+                                "隐藏"
+                            } else {
+                                "显示"
+                            };
+                            if theme::ghost_button(ui, toggle_label, &t).clicked() {
+                                self.generated_show_password = !self.generated_show_password;
+                            }
+                        });
                     });
+                });
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new("口令请通过另一渠道告知对方，不要和密信放在一起发送。")
+                            .size(12.0)
+                            .color(t.text_muted),
+                    );
                 });
             }
             ui.add_space(16.0);
@@ -673,12 +766,28 @@ impl App {
                             "密信已复制，可直接粘贴发给对方",
                         );
                     }
+                    if theme::secondary_button(ui, "复制交付指引", &t)
+                        .on_hover_text("复制对接收方友好的分流交付说明")
+                        .clicked()
+                    {
+                        self.copy_text(ui.ctx(), self.delivery_guidance(is_file), "交付指引已复制");
+                    }
                 } else {
                     if theme::primary_button(ui, "复制密信文本", &t).clicked() {
                         self.copy_text(
                             ui.ctx(),
                             self.generated_cipher.clone(),
                             "密信已复制，可直接粘贴发给对方",
+                        );
+                    }
+                    if theme::secondary_button(ui, "复制分流指引", &t)
+                        .on_hover_text("复制包含密信与安全分流解密说明的完整指引文案")
+                        .clicked()
+                    {
+                        self.copy_text(
+                            ui.ctx(),
+                            self.delivery_guidance(is_file),
+                            "密信分流指引已复制",
                         );
                     }
                     if theme::secondary_button(ui, "保存密信文件", &t)
@@ -694,18 +803,22 @@ impl App {
                 theme::hairline(ui, &t);
                 ui.add_space(6.0);
                 egui::CollapsingHeader::new(
-                    RichText::new("查看加密文本").size(12.5).color(t.text_secondary),
+                    RichText::new("查看加密文本")
+                        .size(12.5)
+                        .color(t.text_secondary),
                 )
                 .id_salt("cipher_text")
                 .show(ui, |ui| {
-                    egui::ScrollArea::vertical().max_height(140.0).show(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::multiline(&mut self.generated_cipher.as_str())
-                                .font(egui::TextStyle::Monospace)
-                                .margin(egui::vec2(8.0, 6.0))
-                                .desired_width(f32::INFINITY),
-                        );
-                    });
+                    egui::ScrollArea::vertical()
+                        .max_height(140.0)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.generated_cipher.as_str())
+                                    .font(egui::TextStyle::Monospace)
+                                    .margin(egui::vec2(8.0, 6.0))
+                                    .desired_width(f32::INFINITY),
+                            );
+                        });
                 });
             }
         });
@@ -771,6 +884,12 @@ impl App {
                         theme::status_label(ui, label, color);
                     }
                 });
+
+                if let Some(cipher) = self.clipboard_cipher.clone() {
+                    if self.receive_input.trim().is_empty() && self.receive_file.is_none() {
+                        self.render_clipboard_capsule(ui, &cipher);
+                    }
+                }
 
                 if let Some(file) = self.receive_file.clone() {
                     self.render_received_file_card(ui, &file);
@@ -854,6 +973,57 @@ impl App {
             });
     }
 
+    fn render_clipboard_capsule(&mut self, ui: &mut egui::Ui, cipher: &str) {
+        let t = self.theme();
+        ui.add_space(2.0);
+        egui::Frame::none()
+            .fill(t.bg_card)
+            .stroke(Stroke::new(1.0_f32, t.border_accent))
+            .rounding(Rounding::same(12.0))
+            .inner_margin(Margin::symmetric(12.0, 7.0))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    theme::icon(ui, Icon::Receive, 15.0, t.text_accent);
+                    ui.add_space(2.0);
+                    ui.label(
+                        RichText::new("检测到剪贴板中的密信")
+                            .size(12.5)
+                            .color(t.text_primary),
+                    );
+                    ui.add_space(6.0);
+                    let fill_btn = ui.add(
+                        egui::Button::new(
+                            RichText::new("一键填入")
+                                .size(12.0)
+                                .strong()
+                                .color(t.text_on_accent),
+                        )
+                        .fill(t.accent_emerald)
+                        .rounding(Rounding::same(theme::RADIUS))
+                        .min_size(egui::vec2(68.0, 24.0)),
+                    );
+                    if fill_btn.clicked() {
+                        let is_pw = cipher.starts_with(PREFIX);
+                        self.receive_input = cipher.to_string();
+                        self.receive_file = None;
+                        self.decrypted = None;
+                        self.clipboard_cipher = None;
+                        if is_pw {
+                            self.focus_receive_password = true;
+                        }
+                        self.notify("已载入剪贴板中的密信", ToastKind::Success);
+                    }
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if theme::ghost_button(ui, "忽略", &t).clicked() {
+                            self.clipboard_ignored = Some(cipher.to_string());
+                            self.clipboard_cipher = None;
+                        }
+                    });
+                });
+            });
+        ui.add_space(6.0);
+    }
+
     fn render_receive_text_input(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
         theme::paper(ui, &t, |ui| {
@@ -869,6 +1039,9 @@ impl App {
             );
             if response.changed() {
                 self.decrypted = None;
+                if self.receive_input.trim().starts_with(PREFIX) {
+                    self.focus_receive_password = true;
+                }
             }
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -876,9 +1049,15 @@ impl App {
                 if theme::ghost_button(ui, "粘贴密信", &t).clicked() {
                     if let Ok(mut cb) = arboard::Clipboard::new() {
                         if let Ok(text) = cb.get_text() {
-                            self.receive_input = text.trim().to_string();
+                            let trimmed = text.trim().to_string();
+                            let is_pw = trimmed.starts_with(PREFIX);
+                            self.receive_input = trimmed;
                             self.receive_file = None;
                             self.decrypted = None;
+                            self.clipboard_cipher = None;
+                            if is_pw {
+                                self.focus_receive_password = true;
+                            }
                         }
                     }
                 }
@@ -892,6 +1071,7 @@ impl App {
                             self.receive_file = None;
                             self.receive_password.clear();
                             self.decrypted = None;
+                            self.focus_receive_password = false;
                         }
                     });
                 }
@@ -919,7 +1099,9 @@ impl App {
             ui.add_space(2.0);
             theme::caption(ui, "无需口令，确认后直接解密。", &t);
             ui.add_space(10.0);
-            if theme::primary_button(ui, "使用本机身份解密", &t).clicked() {
+            if theme::primary_button(ui, "使用本机身份解密", &t).clicked()
+                || ui.input(|i| i.key_pressed(egui::Key::Enter))
+            {
                 self.do_receive();
             }
         });
@@ -940,13 +1122,24 @@ impl App {
                         .margin(egui::vec2(8.0, 6.0))
                         .desired_width(field_width),
                 );
-                let submitted = response.lost_focus()
-                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                    && can_decrypt;
+
+                if std::mem::take(&mut self.focus_receive_password) {
+                    response.request_focus();
+                    response.scroll_to_me(Some(Align::Center));
+                }
+
+                let enter_pressed = (response.has_focus() || response.lost_focus())
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter));
+
                 ui.checkbox(&mut self.receive_show_password, "显示");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if primary_action(ui, "解密密信", can_decrypt, &t).clicked() || submitted {
+                    if primary_action(ui, "解密密信", can_decrypt, &t).clicked()
+                        || (enter_pressed && can_decrypt)
+                    {
                         self.do_receive();
+                    } else if enter_pressed && !can_decrypt {
+                        response.request_focus();
+                        self.notify("请输入解密口令", ToastKind::Warning);
                     }
                 });
             });
@@ -1030,7 +1223,9 @@ impl App {
                                         let text = format!("已保存到 {}", path.display());
                                         ui.add(
                                             egui::Label::new(
-                                                RichText::new(&text).size(12.0).color(t.text_accent),
+                                                RichText::new(&text)
+                                                    .size(12.0)
+                                                    .color(t.text_accent),
                                             )
                                             .truncate(),
                                         )
@@ -1039,7 +1234,10 @@ impl App {
                                     None => {
                                         theme::caption(
                                             ui,
-                                            format!("{} · 尚未保存到本地", format_file_size(bytes.len())),
+                                            format!(
+                                                "{} · 尚未保存到本地",
+                                                format_file_size(bytes.len())
+                                            ),
                                             &t,
                                         );
                                     }
@@ -1055,6 +1253,24 @@ impl App {
                         });
                     });
                 });
+
+                if saved_path.is_some() {
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if theme::primary_button(ui, "直接打开文件", &t)
+                            .on_hover_text("使用系统默认应用打开该文件")
+                            .clicked()
+                        {
+                            let _ = self.open_saved_file();
+                        }
+                        if theme::secondary_button(ui, "在文件夹中显示", &t)
+                            .on_hover_text("在文件管理器中定位该文件")
+                            .clicked()
+                        {
+                            let _ = self.reveal_saved_file();
+                        }
+                    });
+                }
 
                 ui.add_space(12.0);
                 theme::hairline(ui, &t);
@@ -1126,9 +1342,11 @@ impl App {
                         ui.set_width(text_width);
                         ui.add(
                             egui::Label::new(
-                                RichText::new("把公开身份发给对方，对方就能给你发专属密信，不用约定口令。")
-                                    .size(13.0)
-                                    .color(t.text_secondary),
+                                RichText::new(
+                                    "把公开身份发给对方，对方就能给你发专属密信，不用约定口令。",
+                                )
+                                .size(13.0)
+                                .color(t.text_secondary),
                             )
                             .wrap(),
                         );
@@ -1164,7 +1382,7 @@ impl App {
                 );
                 ui.add_space(12.0);
                 egui::Frame::none()
-                    .stroke(Stroke::new(1.0, t.border_card))
+                    .stroke(Stroke::new(1.0_f32, t.border_card))
                     .rounding(10.0)
                     .show(ui, |ui| theme::render_qr(ui, &self.identity.1, qr_size));
             });
@@ -1172,7 +1390,9 @@ impl App {
             theme::hairline(ui, &t);
             ui.add_space(6.0);
             egui::CollapsingHeader::new(
-                RichText::new("查看公开身份代码").size(12.5).color(t.text_secondary),
+                RichText::new("查看公开身份代码")
+                    .size(12.5)
+                    .color(t.text_secondary),
             )
             .id_salt("public_identity_code")
             .show(ui, |ui| {
@@ -1273,10 +1493,8 @@ impl App {
                                     Layout::top_down(Align::Min),
                                     |ui| {
                                         ui.add(
-                                            egui::Label::new(
-                                                RichText::new(&contact.name).strong(),
-                                            )
-                                            .truncate(),
+                                            egui::Label::new(RichText::new(&contact.name).strong())
+                                                .truncate(),
                                         );
                                         ui.label(
                                             RichText::new(&contact.fingerprint)
@@ -1295,12 +1513,18 @@ impl App {
                                             delete_idx = Some(i);
                                         }
                                     } else {
-                                        if theme::ghost_button_colored(ui, "删除", t.accent_rose, &t)
-                                            .clicked()
+                                        if theme::ghost_button_colored(
+                                            ui,
+                                            "删除",
+                                            t.accent_rose,
+                                            &t,
+                                        )
+                                        .clicked()
                                         {
                                             self.confirm_delete_idx = Some(i);
                                         }
-                                        if theme::ghost_button(ui, "复制公开身份", &t).clicked() {
+                                        if theme::ghost_button(ui, "复制公开身份", &t).clicked()
+                                        {
                                             copy_key = Some(contact.public_key.clone());
                                         }
                                         if theme::ghost_button_colored(
@@ -1540,7 +1764,12 @@ fn display_name(name: &str, extension: &str) -> String {
 }
 
 /// Primary action that stays legible when unavailable: neutral fill, muted text, no click.
-fn primary_action(ui: &mut egui::Ui, label: &str, enabled: bool, t: &ThemeColors) -> egui::Response {
+fn primary_action(
+    ui: &mut egui::Ui,
+    label: &str,
+    enabled: bool,
+    t: &ThemeColors,
+) -> egui::Response {
     if enabled {
         return theme::primary_button(ui, label, t);
     }
@@ -1572,7 +1801,11 @@ fn chip(ui: &mut egui::Ui, label: &str, selected: bool, t: &ThemeColors) -> egui
         .scope(|ui| {
             ui.spacing_mut().button_padding = egui::vec2(12.0, 4.0);
             let v = ui.visuals_mut();
-            v.override_text_color = Some(if selected { t.text_accent } else { t.text_primary });
+            v.override_text_color = Some(if selected {
+                t.text_accent
+            } else {
+                t.text_primary
+            });
             for (i, state) in [
                 &mut v.widgets.inactive,
                 &mut v.widgets.hovered,
@@ -1588,11 +1821,20 @@ fn chip(ui: &mut egui::Ui, label: &str, selected: bool, t: &ThemeColors) -> egui
                 } else {
                     t.bg_card_hover
                 };
-                state.bg_stroke = Stroke::new(1.0, if selected { t.border_accent } else { t.border_card_light });
+                state.bg_stroke = Stroke::new(
+                    1.0_f32,
+                    if selected {
+                        t.border_accent
+                    } else {
+                        t.border_card_light
+                    },
+                );
                 state.rounding = egui::Rounding::same(14.0);
                 state.expansion = 0.0;
             }
-            ui.add(egui::Button::new(RichText::new(label).size(13.0)).min_size(egui::vec2(0.0, 28.0)))
+            ui.add(
+                egui::Button::new(RichText::new(label).size(13.0)).min_size(egui::vec2(0.0, 28.0)),
+            )
         })
         .inner;
     theme::focus_outline(ui, &response, t);
@@ -1624,10 +1866,21 @@ fn file_tile(ui: &mut egui::Ui, extension: &str, t: &ThemeColors) {
 
 fn dashed_rect(painter: &egui::Painter, rect: egui::Rect, color: Color32) {
     let r = rect.shrink(0.5);
-    let stroke = Stroke::new(1.0, color);
-    let corners = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
+    let stroke = Stroke::new(1.0_f32, color);
+    let corners = [
+        r.left_top(),
+        r.right_top(),
+        r.right_bottom(),
+        r.left_bottom(),
+        r.left_top(),
+    ];
     for pair in corners.windows(2) {
-        painter.extend(egui::Shape::dashed_line(&[pair[0], pair[1]], stroke, 5.0, 4.0));
+        painter.extend(egui::Shape::dashed_line(
+            &[pair[0], pair[1]],
+            stroke,
+            5.0,
+            4.0,
+        ));
     }
 }
 
@@ -1656,4 +1909,74 @@ fn setting_row(
         );
         ui.with_layout(Layout::right_to_left(Align::Center), control);
     });
+}
+
+pub fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Err("文件不存在或已被移动".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("无法定位文件：{e}"))?;
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(format!("/select,\"{}\"", path.display()))
+            .spawn()
+            .map_err(|e| format!("无法定位文件：{e}"))?;
+        Ok(())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let parent = path.parent().unwrap_or(path);
+        std::process::Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|e| format!("无法定位文件：{e}"))?;
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", unix)))]
+    {
+        Err("当前操作系统不支持在文件管理器中定位".into())
+    }
+}
+
+pub fn open_file_native(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Err("文件不存在或已被移动".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("无法打开文件：{e}"))?;
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path.to_string_lossy()])
+            .spawn()
+            .map_err(|e| format!("无法打开文件：{e}"))?;
+        Ok(())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("无法打开文件：{e}"))?;
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", unix)))]
+    {
+        Err("当前操作系统不支持打开文件".into())
+    }
 }
