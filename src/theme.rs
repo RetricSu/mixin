@@ -59,21 +59,21 @@ pub const DARK_THEME: ThemeColors = ThemeColors {
 };
 
 pub const LIGHT_THEME: ThemeColors = ThemeColors {
-    bg_canvas: Color32::from_rgb(248, 249, 248),
+    bg_canvas: Color32::from_rgb(243, 245, 244),
     bg_selection: Color32::from_rgb(225, 241, 232),
     text_on_accent: Color32::from_rgb(255, 255, 255),
     text_accent: Color32::from_rgb(24, 112, 74),
-    bg_header: Color32::from_rgb(241, 243, 242),
+    bg_header: Color32::from_rgb(238, 241, 239),
     bg_card: Color32::from_rgb(255, 255, 255),
     bg_card_elevated: Color32::from_rgb(236, 240, 238),
     bg_card_hover: Color32::from_rgb(232, 237, 234),
-    bg_well: Color32::from_rgb(251, 252, 251),
-    border_card: Color32::from_rgb(226, 231, 228),
-    border_card_light: Color32::from_rgb(204, 212, 207),
+    bg_well: Color32::from_rgb(249, 251, 250),
+    border_card: Color32::from_rgb(222, 228, 225),
+    border_card_light: Color32::from_rgb(202, 210, 205),
     border_accent: Color32::from_rgb(52, 150, 105),
     text_primary: Color32::from_rgb(28, 36, 32),
-    text_secondary: Color32::from_rgb(78, 90, 84),
-    text_muted: Color32::from_rgb(100, 111, 104),
+    text_secondary: Color32::from_rgb(76, 88, 82),
+    text_muted: Color32::from_rgb(94, 106, 99),
     accent_emerald: Color32::from_rgb(30, 132, 88),
     accent_emerald_hover: Color32::from_rgb(25, 120, 79),
     accent_emerald_active: Color32::from_rgb(21, 106, 70),
@@ -167,12 +167,12 @@ pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
         ),
         (
             TextStyle::Name("Subheading".into()),
-            FontId::new(15.0, FontFamily::Proportional),
+            FontId::new(16.0, FontFamily::Proportional),
         ),
         (TextStyle::Body, FontId::new(14.0, FontFamily::Proportional)),
         (
             TextStyle::Button,
-            FontId::new(13.0, FontFamily::Proportional),
+            FontId::new(14.0, FontFamily::Proportional),
         ),
         (
             TextStyle::Monospace,
@@ -180,7 +180,7 @@ pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
         ),
         (
             TextStyle::Small,
-            FontId::new(11.5, FontFamily::Proportional),
+            FontId::new(11.0, FontFamily::Proportional),
         ),
     ]
     .into();
@@ -226,22 +226,30 @@ pub fn configure_fonts(ctx: &egui::Context) {
 
 /// The single surface style used for every content group.
 pub fn card_frame(t: &ThemeColors) -> Frame {
+    let is_dark = t.bg_card.r() < 128;
     Frame::none()
         .fill(t.bg_card)
         .stroke(Stroke::new(1.0_f32, t.border_card))
         .rounding(CARD_RADIUS)
         .inner_margin(Margin::same(16.0))
+        .shadow(egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 1.0),
+            blur: 6.0,
+            spread: 0.0,
+            color: Color32::from_black_alpha(if is_dark { 24 } else { 10 }),
+        })
 }
 
 /// Editor surface: same as a card, with a soft lift so it reads as the focus.
 pub fn paper_frame(t: &ThemeColors) -> Frame {
+    let is_dark = t.bg_card.r() < 128;
     card_frame(t)
         .inner_margin(Margin::symmetric(16.0, 14.0))
         .shadow(egui::epaint::Shadow {
-            offset: egui::vec2(0.0, 1.0),
-            blur: 4.0,
+            offset: egui::vec2(0.0, 2.0),
+            blur: 8.0,
             spread: 0.0,
-            color: Color32::from_black_alpha(6),
+            color: Color32::from_black_alpha(if is_dark { 36 } else { 14 }),
         })
 }
 
@@ -293,7 +301,7 @@ pub fn section_header(ui: &mut Ui, title: &str, t: &ThemeColors, trailing: impl 
         ui.set_min_height(CONTROL_HEIGHT);
         ui.label(
             egui::RichText::new(title)
-                .size(13.0)
+                .size(14.0)
                 .strong()
                 .color(t.text_secondary),
         );
@@ -303,7 +311,7 @@ pub fn section_header(ui: &mut Ui, title: &str, t: &ThemeColors, trailing: impl 
 }
 
 pub fn section_heading(ui: &mut Ui, title: &str) {
-    ui.label(egui::RichText::new(title).size(13.0).strong());
+    ui.label(egui::RichText::new(title).size(14.0).strong());
     ui.add_space(4.0);
 }
 
@@ -314,7 +322,7 @@ pub fn field_label(ui: &mut Ui, text: &str, t: &ThemeColors) {
 pub fn caption(ui: &mut Ui, text: impl Into<String>, t: &ThemeColors) -> egui::Response {
     ui.label(
         egui::RichText::new(text.into())
-            .size(12.0)
+            .size(12.5)
             .color(t.text_muted),
     )
 }
@@ -491,7 +499,7 @@ pub fn segmented_control<T: Copy + PartialEq>(
                                 state.rounding = Rounding::same(RADIUS - 1.0);
                                 state.expansion = 0.0;
                             }
-                            let text = egui::RichText::new(*label).size(13.0);
+                            let text = egui::RichText::new(*label).size(12.5);
                             ui.add(
                                 egui::Button::new(if selected { text.strong() } else { text })
                                     .min_size(egui::vec2(76.0, 26.0)),
@@ -525,7 +533,7 @@ pub fn pill_badge(ui: &mut Ui, text: &str, color: Color32) {
         .rounding(Rounding::same(10.0))
         .inner_margin(Margin::symmetric(8.0, 2.0))
         .show(ui, |ui| {
-            ui.label(egui::RichText::new(text).color(color).size(11.5).strong());
+            ui.label(egui::RichText::new(text).color(color).size(11.0).strong());
         });
 }
 
@@ -548,6 +556,8 @@ pub enum Icon {
     Warning,
     Error,
     Lock,
+    Eye,
+    EyeClosed,
 }
 
 pub fn icon(ui: &mut Ui, icon: Icon, size: f32, color: Color32) -> egui::Response {
@@ -676,6 +686,37 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
             }
             line(&arc);
         }
+        Icon::Eye => {
+            let mut upper = Vec::new();
+            let mut lower = Vec::new();
+            for i in 0..=12 {
+                let frac = i as f32 / 12.0;
+                let x = 2.0 + 12.0 * frac;
+                let y_up = 8.0 - 18.0 * frac * (1.0 - frac);
+                let y_down = 8.0 + 18.0 * frac * (1.0 - frac);
+                upper.push(p(x, y_up));
+                lower.push(p(x, y_down));
+            }
+            line(&upper);
+            line(&lower);
+            painter.circle_filled(p(8.0, 8.0), 2.2 * s, color);
+        }
+        Icon::EyeClosed => {
+            let mut upper = Vec::new();
+            let mut lower = Vec::new();
+            for i in 0..=12 {
+                let frac = i as f32 / 12.0;
+                let x = 2.0 + 12.0 * frac;
+                let y_up = 8.0 - 18.0 * frac * (1.0 - frac);
+                let y_down = 8.0 + 18.0 * frac * (1.0 - frac);
+                upper.push(p(x, y_up));
+                lower.push(p(x, y_down));
+            }
+            line(&upper);
+            line(&lower);
+            painter.circle_filled(p(8.0, 8.0), 2.2 * s, color);
+            line(&[p(3.0, 3.5), p(13.0, 12.5)]);
+        }
     }
 }
 
@@ -712,7 +753,7 @@ pub fn nav_item(
             egui::vec2(16.0, 16.0),
         );
         paint_icon(painter, icon_rect, icon, color);
-        let font = egui::FontId::proportional(13.5);
+        let font = egui::FontId::proportional(14.0);
         let galley = painter.layout_no_wrap(label.to_owned(), font, color);
         let pos = Pos2::new(rect.left() + 38.0, rect.center().y - galley.size().y / 2.0);
         if selected {

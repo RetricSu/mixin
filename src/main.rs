@@ -21,7 +21,7 @@ use std::{
 };
 use theme::ThemeColors;
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 enum Tab {
     Send,
     Receive,
@@ -124,6 +124,9 @@ struct App {
     show_add_contact_dialog: bool,
     focus_new_contact: bool,
     confirm_delete_idx: Option<usize>,
+    editing_contact_idx: Option<usize>,
+    editing_contact_name: String,
+    confirm_overwrite_password: bool,
 }
 
 impl App {
@@ -173,6 +176,9 @@ impl App {
             show_add_contact_dialog: false,
             focus_new_contact: false,
             confirm_delete_idx: None,
+            editing_contact_idx: None,
+            editing_contact_name: String::new(),
+            confirm_overwrite_password: false,
         }
     }
 
@@ -317,22 +323,28 @@ impl App {
             self.notify(hint, ToastKind::Warning);
             return;
         }
-        let (bytes, meta, summary_kind) = match &self.send_file {
-            Some(file) => (
-                file.bytes.clone(),
-                Some(FileMeta {
-                    name: file.name.clone(),
-                    extension: file.extension.clone(),
-                    content_type: "application/octet-stream".into(),
-                }),
-                format!(
-                    "文件: {}.{} ({})",
-                    file.name,
-                    file.extension,
-                    format_file_size(file.size)
+        let (bytes, meta, summary_kind) = match self.payload_type {
+            PayloadType::File => match &self.send_file {
+                Some(file) => (
+                    file.bytes.clone(),
+                    Some(FileMeta {
+                        name: file.name.clone(),
+                        extension: file.extension.clone(),
+                        content_type: "application/octet-stream".into(),
+                    }),
+                    format!(
+                        "文件: {}.{} ({})",
+                        file.name,
+                        file.extension,
+                        format_file_size(file.size)
+                    ),
                 ),
-            ),
-            None => {
+                None => {
+                    self.notify("请选择要加密的文件", ToastKind::Warning);
+                    return;
+                }
+            },
+            PayloadType::Text => {
                 let text_bytes = self.send_text.as_bytes().to_vec();
                 let count = self.send_text.chars().count();
                 (text_bytes, None, format!("文字 ({count}字)"))

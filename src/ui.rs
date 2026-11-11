@@ -125,7 +125,7 @@ impl App {
             ui.add_space(2.0);
             ui.label(
                 RichText::new("密信")
-                    .size(17.0)
+                    .size(16.0)
                     .strong()
                     .color(t.text_primary),
             );
@@ -189,7 +189,7 @@ impl App {
                             };
                             let galley = ui.painter().layout_no_wrap(
                                 label.to_owned(),
-                                egui::FontId::proportional(12.0),
+                                egui::FontId::proportional(12.5),
                                 color,
                             );
                             let content_w = 13.0 + 5.0 + galley.size().x;
@@ -278,7 +278,7 @@ impl App {
                             ui.add(
                                 egui::Label::new(
                                     RichText::new(&toast.message)
-                                        .size(13.0)
+                                        .size(14.0)
                                         .color(t.text_primary),
                                 )
                                 .wrap(),
@@ -388,9 +388,6 @@ impl App {
                     );
                 });
                 if kind != self.payload_type {
-                    if kind == PayloadType::Text {
-                        self.send_file = None;
-                    }
                     self.payload_type = kind;
                 }
                 self.render_payload_input(ui);
@@ -453,19 +450,27 @@ impl App {
                     egui::TextEdit::multiline(&mut self.send_text)
                         .hint_text("写下或粘贴需要保密的内容…")
                         .frame(false)
-                        .desired_rows(2)
-                        .min_size(egui::vec2(0.0, 48.0))
+                        .desired_rows(4)
+                        .min_size(egui::vec2(0.0, EDITOR_MIN_HEIGHT))
                         .margin(egui::vec2(0.0, 2.0))
                         .desired_width(f32::INFINITY),
                 );
-                ui.add_space(2.0);
-                if !self.send_text.is_empty() {
-                    ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if !self.send_text.is_empty() {
                         if theme::ghost_button(ui, "清空", &t).clicked() {
                             self.send_text.clear();
                         }
+                    }
+                    let count = self.send_text.chars().count();
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!("共 {count} 字"))
+                                .size(12.5)
+                                .color(t.text_muted),
+                        );
                     });
-                }
+                });
             });
     }
 
@@ -527,7 +532,7 @@ impl App {
         child.add_space(2.0);
         child.label(
             RichText::new("把文件拖到这里")
-                .size(13.5)
+                .size(14.0)
                 .color(t.text_secondary),
         );
         child.add_space(2.0);
@@ -538,41 +543,148 @@ impl App {
         }
     }
 
+fn render_embedded_password_field(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    value: &mut String,
+    show_password: &mut bool,
+    hint: &str,
+    t: &ThemeColors,
+) -> egui::Response {
+    let id = ui.make_persistent_id(id_salt);
+    let is_focused = ui.memory(|m| m.has_focus(id));
+    let frame = egui::Frame::none()
+        .fill(t.bg_well)
+        .stroke(if is_focused {
+            Stroke::new(1.0_f32, t.border_accent)
+        } else {
+            Stroke::new(1.0_f32, t.border_card_light)
+        })
+        .rounding(Rounding::same(theme::RADIUS))
+        .inner_margin(Margin {
+            left: 8.0,
+            right: 6.0,
+            top: 5.0,
+            bottom: 5.0,
+        });
+
+    frame
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let text_width = (ui.available_width() - 26.0).max(40.0);
+                let text_edit = egui::TextEdit::singleline(value)
+                    .id(id)
+                    .password(!*show_password)
+                    .hint_text(hint)
+                    .frame(false)
+                    .desired_width(text_width);
+                let edit_res = ui.add(text_edit);
+
+                let icon = if *show_password {
+                    Icon::Eye
+                } else {
+                    Icon::EyeClosed
+                };
+                let (rect, eye_res) =
+                    ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::click());
+                let eye_color = if eye_res.hovered() {
+                    t.text_primary
+                } else {
+                    t.text_muted
+                };
+                theme::paint_icon(ui.painter(), rect, icon, eye_color);
+                if eye_res.clicked() {
+                    *show_password = !*show_password;
+                }
+                eye_res.on_hover_text(if *show_password {
+                    "隐藏口令"
+                } else {
+                    "显示口令"
+                });
+                edit_res
+            })
+            .inner
+        })
+        .inner
+}
+
     fn render_password_input(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
         theme::card(ui, &t, |ui| {
             ui.columns(2, |cols| {
-                for (col, label, value, hint) in [
-                    (0, "解密口令", &mut self.send_password, "设置口令"),
-                    (1, "确认口令", &mut self.send_confirm, "再次输入"),
+                for (col, id_salt, label, hint) in [
+                    (0, "send_pwd", "解密口令", "设置口令"),
+                    (1, "send_confirm", "确认口令", "再次输入"),
                 ] {
                     let ui = &mut cols[col];
                     ui.spacing_mut().item_spacing.y = 4.0;
                     theme::field_label(ui, label, &t);
-                    ui.add(
-                        egui::TextEdit::singleline(value)
-                            .password(!self.send_show_password)
-                            .hint_text(hint)
-                            .margin(egui::vec2(8.0, 6.0))
-                            .desired_width(f32::INFINITY),
-                    );
+                    if col == 0 {
+                        Self::render_embedded_password_field(
+                            ui,
+                            id_salt,
+                            &mut self.send_password,
+                            &mut self.send_show_password,
+                            hint,
+                            &t,
+                        );
+                    } else {
+                        Self::render_embedded_password_field(
+                            ui,
+                            id_salt,
+                            &mut self.send_confirm,
+                            &mut self.send_show_password,
+                            hint,
+                            &t,
+                        );
+                    }
                 }
             });
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.checkbox(&mut self.send_show_password, "显示口令");
                 if !self.send_confirm.is_empty() && self.send_password != self.send_confirm {
                     theme::status_label(ui, "两次口令不一致", t.accent_rose);
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if theme::ghost_button_colored(ui, "随机生成并复制", t.text_accent, &t)
-                        .on_hover_text("生成好记的随机口令，填入两栏并复制")
-                        .clicked()
-                    {
-                        let pwd = generate_memorable_password();
-                        self.send_password = pwd.clone();
-                        self.send_confirm = pwd.clone();
-                        self.copy_text(ui.ctx(), pwd, "口令已生成并复制，请通过另一渠道告知对方");
+                    if self.confirm_overwrite_password {
+                        if theme::ghost_button(ui, "取消", &t).clicked() {
+                            self.confirm_overwrite_password = false;
+                        }
+                        if theme::danger_button(ui, "确认覆盖", &t).clicked() {
+                            let pwd = generate_memorable_password();
+                            self.send_password = pwd.clone();
+                            self.send_confirm = pwd.clone();
+                            self.confirm_overwrite_password = false;
+                            self.copy_text(
+                                ui.ctx(),
+                                pwd,
+                                "口令已生成并复制，请通过另一渠道告知对方",
+                            );
+                        }
+                        ui.label(
+                            RichText::new("已有手动输入口令，确认覆盖？")
+                                .size(12.5)
+                                .color(t.accent_amber),
+                        );
+                    } else {
+                        if theme::ghost_button_colored(ui, "随机生成并复制", t.text_accent, &t)
+                            .on_hover_text("生成好记的随机口令，填入两栏并复制")
+                            .clicked()
+                        {
+                            if !self.send_password.is_empty() || !self.send_confirm.is_empty() {
+                                self.confirm_overwrite_password = true;
+                            } else {
+                                let pwd = generate_memorable_password();
+                                self.send_password = pwd.clone();
+                                self.send_confirm = pwd.clone();
+                                self.copy_text(
+                                    ui.ctx(),
+                                    pwd,
+                                    "口令已生成并复制，请通过另一渠道告知对方",
+                                );
+                            }
+                        }
                     }
                 });
             });
@@ -655,7 +767,7 @@ impl App {
 
     fn render_generated_output(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
-        let is_file = self.payload_type == PayloadType::File || self.send_file.is_some();
+        let is_file = self.payload_type == PayloadType::File;
         theme::card(ui, &t, |ui| {
             ui.horizontal(|ui| {
                 theme::icon(ui, Icon::Check, 28.0, t.accent_emerald);
@@ -665,7 +777,7 @@ impl App {
                     ui.label(RichText::new("密信已生成").size(16.0).strong());
                     if let Some(summary) = &self.generated_summary {
                         ui.add(
-                            egui::Label::new(RichText::new(summary).size(12.0).color(t.text_muted))
+                            egui::Label::new(RichText::new(summary).size(12.5).color(t.text_muted))
                                 .truncate(),
                         );
                     }
@@ -699,7 +811,7 @@ impl App {
                         theme::icon(ui, Icon::Lock, 15.0, t.accent_amber);
                         ui.label(
                             RichText::new("本次加密口令")
-                                .size(13.0)
+                                .size(12.5)
                                 .strong()
                                 .color(t.text_primary),
                         );
@@ -710,7 +822,7 @@ impl App {
                         } else {
                             &masked
                         };
-                        ui.label(RichText::new(display_pwd).monospace().size(13.0).color(
+                        ui.label(RichText::new(display_pwd).monospace().size(12.5).color(
                             if self.generated_show_password {
                                 t.text_accent
                             } else {
@@ -745,7 +857,7 @@ impl App {
                     ui.add_space(4.0);
                     ui.label(
                         RichText::new("口令请通过另一渠道告知对方，不要和密信放在一起发送。")
-                            .size(12.0)
+                            .size(12.5)
                             .color(t.text_muted),
                     );
                 });
@@ -994,7 +1106,7 @@ impl App {
                     let fill_btn = ui.add(
                         egui::Button::new(
                             RichText::new("一键填入")
-                                .size(12.0)
+                                .size(12.5)
                                 .strong()
                                 .color(t.text_on_accent),
                         )
@@ -1114,14 +1226,65 @@ impl App {
             theme::field_label(ui, "解密口令", &t);
             ui.horizontal(|ui| {
                 let can_decrypt = !self.receive_password.is_empty();
-                let field_width = (ui.available_width() - 200.0).max(120.0);
-                let response = ui.add(
-                    egui::TextEdit::singleline(&mut self.receive_password)
-                        .password(!self.receive_show_password)
-                        .hint_text("输入对方告知的口令")
-                        .margin(egui::vec2(8.0, 6.0))
-                        .desired_width(field_width),
-                );
+                let field_width = (ui.available_width() - 140.0).max(120.0);
+
+                let id = ui.make_persistent_id("receive_pwd");
+                let is_focused = ui.memory(|m| m.has_focus(id));
+                let frame = egui::Frame::none()
+                    .fill(t.bg_well)
+                    .stroke(if is_focused {
+                        Stroke::new(1.0_f32, t.border_accent)
+                    } else {
+                        Stroke::new(1.0_f32, t.border_card_light)
+                    })
+                    .rounding(Rounding::same(theme::RADIUS))
+                    .inner_margin(Margin {
+                        left: 8.0,
+                        right: 6.0,
+                        top: 5.0,
+                        bottom: 5.0,
+                    });
+
+                let response = frame
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            let text_edit = egui::TextEdit::singleline(&mut self.receive_password)
+                                .id(id)
+                                .password(!self.receive_show_password)
+                                .hint_text("输入对方告知的口令")
+                                .frame(false)
+                                .desired_width(field_width - 28.0);
+                            let edit_res = ui.add(text_edit);
+
+                            let icon = if self.receive_show_password {
+                                Icon::Eye
+                            } else {
+                                Icon::EyeClosed
+                            };
+                            let (rect, eye_res) = ui.allocate_exact_size(
+                                egui::vec2(20.0, 20.0),
+                                egui::Sense::click(),
+                            );
+                            let eye_color = if eye_res.hovered() {
+                                t.text_primary
+                            } else {
+                                t.text_muted
+                            };
+                            theme::paint_icon(ui.painter(), rect, icon, eye_color);
+                            if eye_res.clicked() {
+                                self.receive_show_password = !self.receive_show_password;
+                            }
+                            eye_res.on_hover_text(if self.receive_show_password {
+                                "隐藏口令"
+                            } else {
+                                "显示口令"
+                            });
+                            edit_res
+                        })
+                        .inner
+                    })
+                    .inner;
 
                 if std::mem::take(&mut self.focus_receive_password) {
                     response.request_focus();
@@ -1131,7 +1294,6 @@ impl App {
                 let enter_pressed = (response.has_focus() || response.lost_focus())
                     && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
-                ui.checkbox(&mut self.receive_show_password, "显示");
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if primary_action(ui, "解密密信", can_decrypt, &t).clicked()
                         || (enter_pressed && can_decrypt)
@@ -1156,7 +1318,7 @@ impl App {
             DecryptedContent::Text(plain_text) => {
                 ui.horizontal(|ui| {
                     theme::icon(ui, Icon::Check, 20.0, t.accent_emerald);
-                    ui.label(RichText::new("密信已解密").size(15.0).strong());
+                    ui.label(RichText::new("密信已解密").size(16.0).strong());
                     theme::caption(ui, format!("文字 · {} 字", plain_text.chars().count()), &t);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if theme::primary_button(ui, "复制文字", &t).clicked() {
@@ -1197,7 +1359,7 @@ impl App {
                 let mut save = false;
                 ui.horizontal(|ui| {
                     theme::icon(ui, Icon::Check, 20.0, t.accent_emerald);
-                    ui.label(RichText::new("文件解密成功").size(15.0).strong());
+                    ui.label(RichText::new("文件解密成功").size(16.0).strong());
                     theme::caption(ui, "文件已在本地安全解开，请保存到电脑", &t);
                 });
                 ui.add_space(12.0);
@@ -1224,7 +1386,7 @@ impl App {
                                         ui.add(
                                             egui::Label::new(
                                                 RichText::new(&text)
-                                                    .size(12.0)
+                                                    .size(12.5)
                                                     .color(t.text_accent),
                                             )
                                             .truncate(),
@@ -1345,7 +1507,7 @@ impl App {
                                 RichText::new(
                                     "把公开身份发给对方，对方就能给你发专属密信，不用约定口令。",
                                 )
-                                .size(13.0)
+                                .size(12.5)
                                 .color(t.text_secondary),
                             )
                             .wrap(),
@@ -1355,7 +1517,7 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(&self.my_fingerprint)
-                                    .size(15.0)
+                                    .size(14.0)
                                     .monospace()
                                     .strong()
                                     .color(t.text_primary),
@@ -1466,84 +1628,197 @@ impl App {
         let mut send_to = None;
         let mut copy_key = None;
         let mut delete_idx = None;
+        let mut update_name: Option<(usize, Result<String, String>)> = None;
+        let mut cancel_editing = false;
         theme::card_frame(&t)
             .inner_margin(Margin::symmetric(6.0, 6.0))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.spacing_mut().item_spacing.y = 0.0;
-                for (i, contact) in self.contacts.iter().enumerate() {
+                for i in 0..self.contacts.len() {
+                    let name = self.contacts[i].name.clone();
+                    let fingerprint = self.contacts[i].fingerprint.clone();
+                    let public_key = self.contacts[i].public_key.clone();
                     if i > 0 {
                         ui.add_space(2.0);
                         theme::hairline(ui, &t);
                         ui.add_space(2.0);
                     }
-                    let row = egui::Frame::none()
+                    let row_id = ui.make_persistent_id(("contact_row", i));
+                    let is_editing = self.editing_contact_idx == Some(i);
+                    let is_confirming = self.confirm_delete_idx == Some(i);
+
+                    let min_pos = ui.cursor().min;
+                    let row_width = ui.available_width();
+                    let row_rect = egui::Rect::from_min_size(min_pos, egui::vec2(row_width, 44.0));
+                    let is_hovered = ui.input(|inp| {
+                        inp.pointer
+                            .hover_pos()
+                            .map_or(false, |pos| row_rect.contains(pos))
+                    });
+
+                    let bg_fill = if is_editing || is_confirming {
+                        t.bg_card_elevated
+                    } else if is_hovered {
+                        t.bg_card_hover
+                    } else {
+                        Color32::TRANSPARENT
+                    };
+
+                    let mut action_taken = false;
+
+                    let frame_res = egui::Frame::none()
+                        .fill(bg_fill)
                         .inner_margin(Margin::symmetric(10.0, 8.0))
                         .rounding(8.0)
                         .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing = egui::vec2(4.0, 2.0);
-                                let confirming = self.confirm_delete_idx == Some(i);
-                                let actions_width = if confirming { 150.0 } else { 220.0 };
-                                ui.allocate_ui_with_layout(
-                                    egui::vec2(
-                                        (ui.available_width() - actions_width).max(80.0),
-                                        38.0,
-                                    ),
-                                    Layout::top_down(Align::Min),
-                                    |ui| {
-                                        ui.add(
-                                            egui::Label::new(RichText::new(&contact.name).strong())
-                                                .truncate(),
-                                        );
-                                        ui.label(
-                                            RichText::new(&contact.fingerprint)
-                                                .monospace()
-                                                .size(11.5)
-                                                .color(t.text_muted),
-                                        );
-                                    },
-                                );
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if confirming {
-                                        if theme::ghost_button(ui, "取消", &t).clicked() {
-                                            self.confirm_delete_idx = None;
-                                        }
-                                        if theme::danger_button(ui, "确认删除", &t).clicked() {
-                                            delete_idx = Some(i);
-                                        }
-                                    } else {
-                                        if theme::ghost_button_colored(
-                                            ui,
-                                            "删除",
-                                            t.accent_rose,
-                                            &t,
-                                        )
-                                        .clicked()
-                                        {
-                                            self.confirm_delete_idx = Some(i);
-                                        }
-                                        if theme::ghost_button(ui, "复制公开身份", &t).clicked()
-                                        {
-                                            copy_key = Some(contact.public_key.clone());
-                                        }
-                                        if theme::ghost_button_colored(
-                                            ui,
-                                            "发送密信",
-                                            t.text_accent,
-                                            &t,
-                                        )
-                                        .clicked()
-                                        {
-                                            send_to = Some(i);
+                            if is_editing {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 6.0;
+                                    theme::field_label(ui, "备注名", &t);
+                                    let edit =
+                                        egui::TextEdit::singleline(&mut self.editing_contact_name)
+                                            .desired_width(160.0)
+                                            .margin(egui::vec2(6.0, 4.0));
+                                    let edit_res = ui.add(edit);
+                                    edit_res.request_focus();
+
+                                    let enter = edit_res.lost_focus()
+                                        && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                    if theme::primary_button(ui, "保存", &t).clicked() || enter {
+                                        action_taken = true;
+                                        let trimmed = self.editing_contact_name.trim();
+                                        if trimmed.is_empty() {
+                                            update_name = Some((i, Err("联系人姓名不能为空".into())));
+                                        } else {
+                                            update_name = Some((i, Ok(trimmed.to_string())));
                                         }
                                     }
+                                    if theme::ghost_button(ui, "取消", &t).clicked()
+                                        || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                                    {
+                                        action_taken = true;
+                                        cancel_editing = true;
+                                    }
                                 });
-                            });
+                                ui.add_space(2.0);
+                                ui.label(
+                                    RichText::new(&fingerprint)
+                                        .monospace()
+                                        .size(11.0)
+                                        .color(t.text_muted),
+                                );
+                            } else {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing = egui::vec2(4.0, 2.0);
+                                    let actions_width = if is_confirming {
+                                        150.0
+                                    } else if is_hovered {
+                                        200.0
+                                    } else {
+                                        80.0
+                                    };
+                                    ui.allocate_ui_with_layout(
+                                        egui::vec2(
+                                            (ui.available_width() - actions_width).max(80.0),
+                                            38.0,
+                                        ),
+                                        Layout::top_down(Align::Min),
+                                        |ui| {
+                                            ui.add(
+                                                egui::Label::new(
+                                                    RichText::new(&name)
+                                                        .size(14.0)
+                                                        .strong(),
+                                                )
+                                                .truncate(),
+                                            );
+                                            ui.label(
+                                                RichText::new(&fingerprint)
+                                                    .monospace()
+                                                    .size(11.0)
+                                                    .color(t.text_muted),
+                                            );
+                                        },
+                                    );
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        if is_confirming {
+                                            if theme::ghost_button(ui, "取消", &t).clicked() {
+                                                self.confirm_delete_idx = None;
+                                                action_taken = true;
+                                            }
+                                            if theme::danger_button(ui, "确认删除", &t).clicked() {
+                                                delete_idx = Some(i);
+                                                action_taken = true;
+                                            }
+                                        } else if is_hovered {
+                                            if theme::ghost_button_colored(
+                                                ui,
+                                                "删除",
+                                                t.accent_rose,
+                                                &t,
+                                            )
+                                            .clicked()
+                                            {
+                                                self.confirm_delete_idx = Some(i);
+                                                action_taken = true;
+                                            }
+                                            if theme::ghost_button(ui, "复制身份", &t).clicked() {
+                                                copy_key = Some(public_key);
+                                                action_taken = true;
+                                            }
+                                            if theme::ghost_button_colored(
+                                                ui,
+                                                "编辑",
+                                                t.text_accent,
+                                                &t,
+                                            )
+                                            .clicked()
+                                            {
+                                                self.editing_contact_idx = Some(i);
+                                                self.editing_contact_name = name;
+                                                action_taken = true;
+                                            }
+                                        } else {
+                                            ui.label(
+                                                RichText::new("发密信 →")
+                                                    .size(12.5)
+                                                    .color(t.text_muted),
+                                            );
+                                        }
+                                    });
+                                });
+                            }
                         });
-                    let _ = row;
+
+                    if !is_editing {
+                        let row_interact =
+                            ui.interact(frame_res.response.rect, row_id, egui::Sense::click());
+                        if row_interact.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if row_interact.clicked() && !action_taken {
+                            send_to = Some(i);
+                        }
+                    }
                 }
             });
+
+        if cancel_editing {
+            self.editing_contact_idx = None;
+        }
+        if let Some((i, res)) = update_name {
+            match res {
+                Ok(new_name) => {
+                    let _ = contacts::update_contact_name(&mut self.contacts, i, &new_name);
+                    self.editing_contact_idx = None;
+                    self.notify("已更新联系人备注名", ToastKind::Success);
+                }
+                Err(err) => {
+                    self.notify(err, ToastKind::Warning);
+                }
+            }
+        }
 
         if let Some(key) = copy_key {
             self.copy_text(ui.ctx(), key, "已复制联系人的公开身份");
@@ -1630,7 +1905,7 @@ impl App {
     fn render_identity_maintenance(&mut self, ui: &mut egui::Ui) {
         let t = self.theme();
         egui::CollapsingHeader::new(
-            RichText::new("备份与恢复").size(13.0).strong().color(t.text_secondary),
+            RichText::new("备份与恢复").size(14.0).strong().color(t.text_secondary),
         )
         .id_salt("identity_maintenance")
         .show_unindented(ui, |ui| {
@@ -1833,7 +2108,7 @@ fn chip(ui: &mut egui::Ui, label: &str, selected: bool, t: &ThemeColors) -> egui
                 state.expansion = 0.0;
             }
             ui.add(
-                egui::Button::new(RichText::new(label).size(13.0)).min_size(egui::vec2(0.0, 28.0)),
+                egui::Button::new(RichText::new(label).size(12.5)).min_size(egui::vec2(0.0, 28.0)),
             )
         })
         .inner;
@@ -1858,7 +2133,7 @@ fn file_tile(ui: &mut egui::Ui, extension: &str, t: &ThemeColors) {
             rect.center() + egui::vec2(0.0, 11.0),
             Align2::CENTER_CENTER,
             ext,
-            egui::FontId::proportional(9.5),
+            egui::FontId::proportional(11.0),
             t.text_accent,
         );
     }
@@ -1900,9 +2175,9 @@ fn setting_row(
             Layout::top_down(Align::Min),
             |ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
-                ui.label(RichText::new(title).size(13.5));
+                ui.label(RichText::new(title).size(14.0));
                 ui.add(
-                    egui::Label::new(RichText::new(description).size(12.0).color(t.text_muted))
+                    egui::Label::new(RichText::new(description).size(12.5).color(t.text_muted))
                         .wrap(),
                 );
             },
