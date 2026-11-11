@@ -99,7 +99,7 @@ pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
     visuals.override_text_color = Some(t.text_primary);
     visuals.panel_fill = t.bg_canvas;
     visuals.window_fill = t.bg_card;
-    visuals.window_stroke = Stroke::new(1.0, t.border_card);
+    visuals.window_stroke = Stroke::new(1.0_f32, t.border_card);
     visuals.extreme_bg_color = t.bg_well;
     visuals.faint_bg_color = t.bg_header;
     visuals.code_bg_color = t.bg_well;
@@ -109,36 +109,36 @@ pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
     let w = &mut visuals.widgets;
     w.noninteractive.bg_fill = t.bg_card;
     w.noninteractive.weak_bg_fill = t.bg_canvas;
-    w.noninteractive.bg_stroke = Stroke::new(1.0, t.border_card);
-    w.noninteractive.fg_stroke = Stroke::new(1.0, t.text_primary);
+    w.noninteractive.bg_stroke = Stroke::new(1.0_f32, t.border_card);
+    w.noninteractive.fg_stroke = Stroke::new(1.0_f32, t.text_primary);
     w.noninteractive.rounding = rounding;
 
     // Secondary buttons and inputs: white surface with a quiet hairline.
     w.inactive.bg_fill = t.bg_well;
     w.inactive.weak_bg_fill = t.bg_card;
-    w.inactive.bg_stroke = Stroke::new(1.0, t.border_card_light);
-    w.inactive.fg_stroke = Stroke::new(1.5, t.text_secondary);
+    w.inactive.bg_stroke = Stroke::new(1.0_f32, t.border_card_light);
+    w.inactive.fg_stroke = Stroke::new(1.5_f32, t.text_secondary);
     w.inactive.rounding = rounding;
     w.inactive.expansion = 0.0;
 
     w.hovered.bg_fill = t.bg_well;
     w.hovered.weak_bg_fill = t.bg_card_hover;
-    w.hovered.bg_stroke = Stroke::new(1.0, t.border_card_light);
-    w.hovered.fg_stroke = Stroke::new(1.5, t.text_primary);
+    w.hovered.bg_stroke = Stroke::new(1.0_f32, t.border_card_light);
+    w.hovered.fg_stroke = Stroke::new(1.5_f32, t.text_primary);
     w.hovered.rounding = rounding;
     w.hovered.expansion = 0.0;
 
     w.active.bg_fill = t.bg_well;
     w.active.weak_bg_fill = t.bg_card_elevated;
-    w.active.bg_stroke = Stroke::new(1.0, t.border_accent);
-    w.active.fg_stroke = Stroke::new(1.5, t.text_primary);
+    w.active.bg_stroke = Stroke::new(1.0_f32, t.border_accent);
+    w.active.fg_stroke = Stroke::new(1.5_f32, t.text_primary);
     w.active.rounding = rounding;
     w.active.expansion = 0.0;
 
     w.open = w.active;
 
     visuals.selection.bg_fill = t.bg_selection;
-    visuals.selection.stroke = Stroke::new(1.0, t.border_accent);
+    visuals.selection.stroke = Stroke::new(1.0_f32, t.border_accent);
 
     visuals.window_rounding = Rounding::same(CARD_RADIUS);
     visuals.menu_rounding = Rounding::same(8.0);
@@ -148,7 +148,7 @@ pub fn apply_theme(ctx: &egui::Context, dark_mode: bool) {
         spread: 0.0,
         color: Color32::from_black_alpha(if dark_mode { 90 } else { 22 }),
     };
-    visuals.text_cursor.stroke = Stroke::new(1.5, t.text_accent);
+    visuals.text_cursor.stroke = Stroke::new(1.5_f32, t.text_accent);
     ctx.set_visuals(visuals);
 
     let mut style = (*ctx.style()).clone();
@@ -228,19 +228,21 @@ pub fn configure_fonts(ctx: &egui::Context) {
 pub fn card_frame(t: &ThemeColors) -> Frame {
     Frame::none()
         .fill(t.bg_card)
-        .stroke(Stroke::new(1.0, t.border_card))
+        .stroke(Stroke::new(1.0_f32, t.border_card))
         .rounding(CARD_RADIUS)
         .inner_margin(Margin::same(16.0))
 }
 
 /// Editor surface: same as a card, with a soft lift so it reads as the focus.
 pub fn paper_frame(t: &ThemeColors) -> Frame {
-    card_frame(t).inner_margin(Margin::symmetric(16.0, 14.0)).shadow(egui::epaint::Shadow {
-        offset: egui::vec2(0.0, 1.0),
-        blur: 4.0,
-        spread: 0.0,
-        color: Color32::from_black_alpha(6),
-    })
+    card_frame(t)
+        .inner_margin(Margin::symmetric(16.0, 14.0))
+        .shadow(egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 1.0),
+            blur: 4.0,
+            spread: 0.0,
+            color: Color32::from_black_alpha(6),
+        })
 }
 
 /// Inset area inside a card (fingerprints, code blocks).
@@ -272,9 +274,13 @@ pub fn paper<R>(ui: &mut Ui, t: &ThemeColors, add: impl FnOnce(&mut Ui) -> R) ->
 
 /// Thin horizontal rule inside cards.
 pub fn hairline(ui: &mut Ui, t: &ThemeColors) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
-    ui.painter()
-        .hline(rect.x_range(), rect.center().y, Stroke::new(1.0, t.border_card));
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+    ui.painter().hline(
+        rect.x_range(),
+        rect.center().y,
+        Stroke::new(1.0_f32, t.border_card),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +312,11 @@ pub fn field_label(ui: &mut Ui, text: &str, t: &ThemeColors) {
 }
 
 pub fn caption(ui: &mut Ui, text: impl Into<String>, t: &ThemeColors) -> egui::Response {
-    ui.label(egui::RichText::new(text.into()).size(12.0).color(t.text_muted))
+    ui.label(
+        egui::RichText::new(text.into())
+            .size(12.0)
+            .color(t.text_muted),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -352,7 +362,11 @@ pub fn primary_button(ui: &mut Ui, label: &str, t: &ThemeColors) -> egui::Respon
     let response = scoped_button(
         ui,
         label,
-        [t.accent_emerald, t.accent_emerald_hover, t.accent_emerald_active],
+        [
+            t.accent_emerald,
+            t.accent_emerald_hover,
+            t.accent_emerald_active,
+        ],
         Stroke::NONE,
         t.text_on_accent,
         egui::vec2(96.0, PRIMARY_HEIGHT),
@@ -368,7 +382,7 @@ pub fn secondary_button(ui: &mut Ui, label: &str, t: &ThemeColors) -> egui::Resp
         ui,
         label,
         [t.bg_card, t.bg_card_hover, t.bg_card_elevated],
-        Stroke::new(1.0, t.border_card_light),
+        Stroke::new(1.0_f32, t.border_card_light),
         t.text_primary,
         egui::vec2(0.0, CONTROL_HEIGHT),
         false,
@@ -426,7 +440,7 @@ pub fn focus_outline(ui: &Ui, response: &egui::Response, t: &ThemeColors) {
         ui.painter().rect_stroke(
             response.rect.expand(2.0),
             RADIUS + 2.0,
-            Stroke::new(1.5, t.border_accent),
+            Stroke::new(1.5_f32, t.border_accent),
         );
     }
 }
@@ -449,8 +463,11 @@ pub fn segmented_control<T: Copy + PartialEq>(
                     let response = ui
                         .scope(|ui| {
                             let v = ui.visuals_mut();
-                            v.override_text_color =
-                                Some(if selected { t.text_primary } else { t.text_secondary });
+                            v.override_text_color = Some(if selected {
+                                t.text_primary
+                            } else {
+                                t.text_secondary
+                            });
                             for (i, state) in [
                                 &mut v.widgets.inactive,
                                 &mut v.widgets.hovered,
@@ -467,7 +484,7 @@ pub fn segmented_control<T: Copy + PartialEq>(
                                     t.bg_card_hover
                                 };
                                 state.bg_stroke = if selected {
-                                    Stroke::new(1.0, t.border_card)
+                                    Stroke::new(1.0_f32, t.border_card)
                                 } else {
                                     Stroke::NONE
                                 };
@@ -549,13 +566,26 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
     match icon {
         Icon::Send => {
             // Paper plane.
-            line(&[p(2.0, 7.5), p(14.0, 2.0), p(9.5, 14.0), p(7.5, 9.0), p(2.0, 7.5)]);
+            line(&[
+                p(2.0, 7.5),
+                p(14.0, 2.0),
+                p(9.5, 14.0),
+                p(7.5, 9.0),
+                p(2.0, 7.5),
+            ]);
             line(&[p(7.5, 9.0), p(14.0, 2.0)]);
         }
         Icon::Receive => {
             // Tray with an arrow dropping in.
             line(&[p(2.0, 9.5), p(2.0, 13.5), p(14.0, 13.5), p(14.0, 9.5)]);
-            line(&[p(2.0, 9.5), p(5.5, 9.5), p(6.5, 11.0), p(9.5, 11.0), p(10.5, 9.5), p(14.0, 9.5)]);
+            line(&[
+                p(2.0, 9.5),
+                p(5.5, 9.5),
+                p(6.5, 11.0),
+                p(9.5, 11.0),
+                p(10.5, 9.5),
+                p(14.0, 9.5),
+            ]);
             line(&[p(8.0, 2.0), p(8.0, 8.0)]);
             line(&[p(5.5, 5.5), p(8.0, 8.0), p(10.5, 5.5)]);
         }
@@ -576,7 +606,14 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
             ));
         }
         Icon::File => {
-            line(&[p(3.5, 1.5), p(9.5, 1.5), p(12.5, 4.5), p(12.5, 14.5), p(3.5, 14.5), p(3.5, 1.5)]);
+            line(&[
+                p(3.5, 1.5),
+                p(9.5, 1.5),
+                p(12.5, 4.5),
+                p(12.5, 14.5),
+                p(3.5, 14.5),
+                p(3.5, 1.5),
+            ]);
             line(&[p(9.5, 1.5), p(9.5, 4.5), p(12.5, 4.5)]);
         }
         Icon::Upload => {
@@ -589,7 +626,10 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
             for i in 0..8 {
                 let a = std::f32::consts::TAU * i as f32 / 8.0;
                 let (sin, cos) = a.sin_cos();
-                line(&[p(8.0 + cos * 5.2, 8.0 + sin * 5.2), p(8.0 + cos * 6.8, 8.0 + sin * 6.8)]);
+                line(&[
+                    p(8.0 + cos * 5.2, 8.0 + sin * 5.2),
+                    p(8.0 + cos * 6.8, 8.0 + sin * 6.8),
+                ]);
             }
         }
         Icon::Moon => {
@@ -640,7 +680,13 @@ pub fn paint_icon(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color3
 }
 
 /// Sidebar row: icon + label, tinted when selected, hover surface drawn beneath the text.
-pub fn nav_item(ui: &mut Ui, icon: Icon, label: &str, selected: bool, t: &ThemeColors) -> egui::Response {
+pub fn nav_item(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    selected: bool,
+    t: &ThemeColors,
+) -> egui::Response {
     let (rect, response) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
     response.widget_info(|| {
@@ -656,7 +702,11 @@ pub fn nav_item(ui: &mut Ui, icon: Icon, label: &str, selected: bool, t: &ThemeC
             Color32::TRANSPARENT
         };
         painter.rect_filled(rect, RADIUS, fill);
-        let color = if selected { t.text_accent } else { t.text_secondary };
+        let color = if selected {
+            t.text_accent
+        } else {
+            t.text_secondary
+        };
         let icon_rect = Rect::from_center_size(
             Pos2::new(rect.left() + 20.0, rect.center().y),
             egui::vec2(16.0, 16.0),
