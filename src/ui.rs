@@ -879,7 +879,7 @@ fn render_embedded_password_field(
                 theme::caption(ui, "对方的公开身份代码", &t);
                 ui.add(
                     egui::TextEdit::multiline(&mut self.recipient_custom_key)
-                        .hint_text("-----BEGIN PUBLIC KEY-----")
+                        .hint_text("-----BEGIN MIXIN PUBLIC KEY-----")
                         .font(egui::TextStyle::Monospace)
                         .margin(egui::vec2(8.0, 5.0))
                         .desired_rows(2)
@@ -1161,7 +1161,7 @@ fn render_embedded_password_field(
                         ui.add(
                             egui::Label::new(
                                 RichText::new(
-                                    "密信以 MX1.（口令）或 MXID1.（专属）开头，请确认复制完整或选择有效的密信文件。",
+                                    "密信以 MX1.（口令）或 MXID2.（专属）开头，请确认复制完整或选择有效的密信文件。",
                                 )
                                 .size(12.5)
                                 .color(t.text_secondary),
@@ -1343,7 +1343,7 @@ fn render_embedded_password_field(
                 ui.label(RichText::new("这封密信只有本机身份能打开").strong());
             });
             ui.add_space(2.0);
-            theme::caption(ui, "无需口令，确认后直接解密。", &t);
+            theme::caption(ui, "使用 X25519 密钥交换解密，并自动验证发件人 Ed25519 签名。", &t);
             ui.add_space(10.0);
             if theme::primary_button(ui, "使用本机身份解密", &t).clicked()
                 || ui.input(|i| i.key_pressed(egui::Key::Enter))
@@ -1563,6 +1563,9 @@ fn render_embedded_password_field(
                     theme::icon(ui, Icon::Check, 20.0, t.accent_emerald);
                     ui.label(RichText::new("密信已解密").size(16.0).strong());
                     theme::caption(ui, format!("文字 · {} 字", plain_text.chars().count()), &t);
+                    if let Some(sender) = &self.verified_sender {
+                        theme::status_label(ui, &format!("发件人：{sender}"), t.text_accent);
+                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if theme::primary_button(ui, "复制文字", &t).clicked() {
                             self.copy_text(ui.ctx(), plain_text.clone(), "已复制解密文字");
@@ -1611,6 +1614,9 @@ fn render_embedded_password_field(
                     theme::icon(ui, Icon::Check, 20.0, t.accent_emerald);
                     ui.label(RichText::new("文件解密成功").size(16.0).strong());
                     theme::caption(ui, "文件已在本地安全解开，请保存到电脑", &t);
+                    if let Some(sender) = &self.verified_sender {
+                        theme::status_label(ui, &format!("发件人：{sender}"), t.text_accent);
+                    }
                 });
                 ui.add_space(12.0);
 
@@ -1754,7 +1760,7 @@ fn render_embedded_password_field(
             ui.add(
                 egui::Label::new(
                     RichText::new(
-                        "把公开身份发给对方，对方就能给你发专属密信，无需约定解密口令。",
+                        "把公开身份发给对方，对方就能给你发专属密信（基于 X25519 密钥交换与 Ed25519 签名），无需约定解密口令。",
                     )
                     .size(12.5)
                     .color(t.text_secondary),
@@ -2173,7 +2179,7 @@ fn render_embedded_password_field(
             theme::field_label(ui, "公开身份代码", &t);
             ui.add(
                 egui::TextEdit::multiline(&mut self.new_contact_key)
-                    .hint_text("-----BEGIN PUBLIC KEY-----")
+                    .hint_text("-----BEGIN MIXIN PUBLIC KEY-----")
                     .font(egui::TextStyle::Monospace)
                     .margin(egui::vec2(8.0, 6.0))
                     .desired_rows(3)

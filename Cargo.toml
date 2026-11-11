@@ -28,13 +28,15 @@ base64 = "0.22"
 rpassword = "7"
 eframe = "0.29"
 rfd = "0.15"
-rsa = { version = "0.9", features = ["sha2", "pem"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"
 qrcode = "0.14"
 arboard = "3"
 image = { version = "0.25", default-features = false, features = ["png"] }
+hkdf = "0.12"
 
 [profile.release]
 lto = true

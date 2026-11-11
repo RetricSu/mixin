@@ -1256,3 +1256,54 @@ fn test_identity_card_restructuring_and_qr_modal() {
     );
     assert!(!app.show_qr_dialog, "Esc must close QR modal dialog");
 }
+
+#[test]
+fn test_contact_encryption_and_verified_sender_ui() {
+    let (alice_priv, alice_pub) = generate_identity().unwrap();
+    let (bob_priv, bob_pub) = generate_identity().unwrap();
+
+    let mut bob_app = App::with_identity(
+        (bob_priv, bob_pub.clone()),
+        vec![Contact {
+            name: "爱丽丝".into(),
+            public_key: alice_pub.clone(),
+            fingerprint: compute_fingerprint(&alice_pub),
+            created_at: "2025-01-01".into(),
+        }],
+        false,
+    );
+
+    let ctx = egui::Context::default();
+    theme::configure_fonts(&ctx);
+
+    // Alice encrypts for Bob
+    let envelope = Envelope {
+        kind: "text".into(),
+        meta: None,
+        data: base64::engine::general_purpose::STANDARD.encode(b"hello from alice"),
+    };
+    let packet = serde_json::to_vec(&envelope).unwrap();
+    let cipher = encrypt_for(&alice_priv, &bob_pub, &packet).unwrap();
+    assert!(cipher.starts_with(IDENTITY_PREFIX));
+
+    bob_app.tab = Tab::Receive;
+    bob_app.receive_input = cipher;
+
+    let output_before = render(&mut bob_app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output_before, "这封密信只有本机身份能打开");
+    text_center(&output_before, "使用本机身份解密");
+
+    // Click decrypt
+    click(&mut bob_app, &ctx, text_center(&output_before, "使用本机身份解密"));
+
+    assert!(bob_app.decrypted.is_some());
+    assert_eq!(
+        bob_app.verified_sender,
+        Some("爱丽丝 · 已验证签名".to_string())
+    );
+
+    let output_after = render(&mut bob_app, &ctx, 1040.0, 800.0, vec![]);
+    text_center(&output_after, "密信已解密");
+    text_center(&output_after, "发件人：爱丽丝 · 已验证签名");
+    text_center(&output_after, "复制文字");
+}
