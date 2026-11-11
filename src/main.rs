@@ -9,10 +9,12 @@ mod ui;
 use base64::Engine as _;
 use contacts::{add_contact, load_contacts, remove_contact, Contact};
 use crypto::{
-    compute_fingerprint, decrypt_payload, decrypt_with, encrypt_for, encrypt_payload,
+    compute_fingerprint, decrypt_payload, decrypt_with_sender, encrypt_for, encrypt_payload,
     format_file_size, format_fingerprint_spaced, generate_identity, generate_memorable_password,
     public_from_private, validate_public_key, Envelope, FileMeta, IDENTITY_PREFIX, PREFIX,
 };
+#[cfg(test)]
+use crypto::decrypt_with;
 use eframe::egui;
 use std::{
     fs,
@@ -109,6 +111,7 @@ struct App {
     receive_password: String,
     receive_show_password: bool,
     decrypted: Option<DecryptedContent>,
+    verified_sender: Option<String>,
     clipboard_cipher: Option<String>,
     last_clipboard_check: Instant,
     clipboard_ignored: Option<String>,
@@ -170,6 +173,7 @@ impl App {
             receive_password: String::new(),
             receive_show_password: false,
             decrypted: None,
+            verified_sender: None,
             clipboard_cipher: None,
             last_clipboard_check: Instant::now(),
             clipboard_ignored: None,
@@ -402,7 +406,7 @@ impl App {
                     self.notify("请选择联系人或粘贴有效公钥", ToastKind::Warning);
                     return;
                 };
-                encrypt_for(&pub_key, &packet)
+                encrypt_for(&self.identity.0, &pub_key, &packet)
             }
         };
 
@@ -412,7 +416,7 @@ impl App {
                 self.generated_show_password = false;
                 let algo_name = match self.send_mode {
                     SendMode::Password => "使用口令接收",
-                    SendMode::Contact => "联系人专属接收",
+                    SendMode::Contact => "联系人专属接收 · Ed25519 已签名",
                 };
                 self.generated_summary = Some(format!("{summary_kind} · {algo_name}"));
                 self.toast = None;
@@ -432,8 +436,30 @@ impl App {
         }
 
         let plain_bytes = if trimmed.starts_with(IDENTITY_PREFIX) {
-            decrypt_with(&self.identity.0, trimmed)
+            match decrypt_with_sender(&self.identity.0, trimmed) {
+                Ok((bytes, sender_fp)) => {
+                    let sender_label = self
+                        .contacts
+                        .iter()
+                        .find(|c| c.fingerprint == sender_fp)
+                        .map(|c| format!("{} · 已验证签名", c.name))
+                        .unwrap_or_else(|| {
+                            if sender_fp == self.my_fingerprint {
+                                "本机身份 · 已验证签名".to_string()
+                            } else {
+                                format!("指纹 {} · 已验证签名", sender_fp)
+                            }
+                        });
+                    self.verified_sender = Some(sender_label);
+                    Ok(bytes)
+                }
+                Err(e) => {
+                    self.verified_sender = None;
+                    Err(e)
+                }
+            }
         } else {
+            self.verified_sender = None;
             decrypt_payload(&self.receive_password, trimmed)
         };
 
@@ -556,6 +582,7 @@ impl App {
             }
         }
         self.decrypted = None;
+        self.verified_sender = None;
         self.receive_file = None;
         self.receive_input.clear();
         self.receive_password.clear();
@@ -842,7 +869,7 @@ mod tests {
     fn identity_roundtrip() {
         let (private, public) = generate_identity().unwrap();
         let plain = "中文文件测试".as_bytes();
-        let token = encrypt_for(&public, plain).unwrap();
+        let token = encrypt_for(&private, &public, plain).unwrap();
         assert_eq!(decrypt_with(&private, &token).unwrap(), plain);
     }
 
@@ -869,7 +896,7 @@ mod tests {
     #[test]
     fn full_e2e_contact_flow() {
         // Alice generates identity
-        let (alice_priv, _alice_pub) = generate_identity().unwrap();
+        let (alice_priv, alice_pub) = generate_identity().unwrap();
         // Bob generates identity
         let (bob_priv, bob_pub) = generate_identity().unwrap();
 
@@ -887,11 +914,12 @@ mod tests {
             data: base64::engine::general_purpose::STANDARD.encode(secret_msg.as_bytes()),
         };
         let packet = serde_json::to_vec(&envelope).unwrap();
-        let cipher = encrypt_for(&bob_contact.public_key, &packet).unwrap();
+        let cipher = encrypt_for(&alice_priv, &bob_contact.public_key, &packet).unwrap();
         assert!(cipher.starts_with(IDENTITY_PREFIX));
 
-        // Bob receives and decrypts with his private key
-        let dec_bytes = decrypt_with(&bob_priv, &cipher).unwrap();
+        // Bob receives and decrypts with his private key, verifying sender
+        let (dec_bytes, sender_fp) = decrypt_with_sender(&bob_priv, &cipher).unwrap();
+        assert_eq!(sender_fp, compute_fingerprint(&alice_pub));
         let dec_env: Envelope = serde_json::from_slice(&dec_bytes).unwrap();
         let plain = base64::engine::general_purpose::STANDARD
             .decode(dec_env.data)
@@ -900,6 +928,40 @@ mod tests {
 
         // Alice attempts to decrypt with her own private key -> must fail!
         assert!(decrypt_with(&alice_priv, &cipher).is_err());
+
+        // Test App level verified_sender display logic
+        let mut bob_app = App::with_identity(
+            (bob_priv.clone(), bob_pub.clone()),
+            vec![Contact {
+                name: "Alice".into(),
+                public_key: alice_pub.clone(),
+                fingerprint: compute_fingerprint(&alice_pub),
+                created_at: "2025-01-01".into(),
+            }],
+            false,
+        );
+        bob_app.receive_input = cipher.clone();
+        bob_app.do_receive();
+        assert_eq!(
+            bob_app.verified_sender,
+            Some("Alice · 已验证签名".to_string()),
+            "Known contact must be resolved by name and verified"
+        );
+
+        // Unknown sender (Eve)
+        let (eve_priv, eve_pub) = generate_identity().unwrap();
+        let eve_cipher = encrypt_for(&eve_priv, &bob_pub, &packet).unwrap();
+        bob_app.receive_input = eve_cipher;
+        bob_app.do_receive();
+        assert_eq!(
+            bob_app.verified_sender,
+            Some(format!("指纹 {} · 已验证签名", compute_fingerprint(&eve_pub))),
+            "Unknown contact must display verified fingerprint"
+        );
+
+        // Destroy resets verified_sender
+        bob_app.destroy_decrypted();
+        assert!(bob_app.verified_sender.is_none());
     }
 
     #[test]
