@@ -1,4 +1,4 @@
-//! 密信桌面版：面向普通人的极简点对点安全传递工具
+//! 火漆 (Waxseal) 桌面版：面向普通人的极简点对点安全传递工具
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod contacts;
@@ -598,20 +598,20 @@ impl App {
         match self.send_mode {
             SendMode::Password => {
                 if is_file {
-                    "我通过「密信」向你发送了一个加密文件。\n\
+                    "我通过「火漆」向你发送了一个加密文件。\n\
                      【解密指引】\n\
-                     1. 请使用「密信」桌面端，将收到的 .mixin 文件直接拖入软件或在接收页打开。\n\
+                     1. 请使用「火漆」桌面端，将收到的 .seal 文件直接拖入软件或在接收页打开。\n\
                      2. 解密口令已通过单独渠道发送，输入口令即可解密并保存原文件。\n\
                      （安全提醒：密信与口令请分流发送，勿在同一会话中合并转发）"
                         .to_string()
                 } else {
                     format!(
-                        "我通过「密信」向你发送了一条加密消息：\n\
+                        "我通过「火漆」向你发送了一条加密消息：\n\
                          ----------------------------------------\n\
                          {}\n\
                          ----------------------------------------\n\
                          【解密指引】\n\
-                         1. 打开「密信」客户端，进入「接收密信」页面（将自动识别剪贴板或手动粘贴）。\n\
+                         1. 打开「火漆」客户端，进入「接收密信」页面（将自动识别剪贴板或手动粘贴）。\n\
                          2. 解密口令已通过单独安全渠道发送，输入口令即可解密。\n\
                          （安全提醒：密信与口令请分流发送，勿在同一会话中合并转发）",
                         self.generated_cipher
@@ -620,18 +620,18 @@ impl App {
             }
             SendMode::Contact => {
                 if is_file {
-                    "我通过「密信」向你发送了一个专属加密文件。\n\
+                    "我通过「火漆」向你发送了一个专属加密文件。\n\
                      【解密指引】\n\
-                     请使用「密信」客户端打开该 .mixin 文件，只有你的本机身份能够解开，无需口令。"
+                     请使用「火漆」客户端打开该 .seal 文件，只有你的本机身份能够解开，无需口令。"
                         .to_string()
                 } else {
                     format!(
-                        "我通过「密信」向你发送了一条专属加密消息：\n\
+                        "我通过「火漆」向你发送了一条专属加密消息：\n\
                          ----------------------------------------\n\
                          {}\n\
                          ----------------------------------------\n\
                          【解密指引】\n\
-                         请在你的电脑上打开「密信」客户端进入接收页，只有你的本机身份能够解开，无需口令。",
+                         请在你的电脑上打开「火漆」客户端进入接收页，只有你的本机身份能够解开，无需口令。",
                         self.generated_cipher
                     )
                 }
@@ -745,8 +745,10 @@ impl eframe::App for App {
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
         for file in dropped_files {
             if let Some(path) = file.path {
-                let is_mixin_ext = path.extension().is_some_and(|ext| ext == "mixin");
-                if is_mixin_ext {
+                let is_cipher_ext = path.extension().is_some_and(|ext| {
+                    ext.eq_ignore_ascii_case("seal") || ext.eq_ignore_ascii_case("mixin")
+                });
+                if is_cipher_ext {
                     self.load_cipher_file_for_receive(path);
                 } else if self.tab == Tab::Receive {
                     if let Ok(content) = fs::read_to_string(&path) {
@@ -782,18 +784,43 @@ impl eframe::App for App {
 }
 
 fn identity_path() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|p| p.join("waxseal").join("identity.pem"))
+}
+
+fn legacy_identity_path() -> Option<PathBuf> {
     dirs::data_local_dir().map(|p| p.join("mixin").join("identity.pem"))
 }
 
 fn theme_pref_path() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|p| p.join("waxseal").join("theme.txt"))
+}
+
+fn legacy_theme_pref_path() -> Option<PathBuf> {
     dirs::data_local_dir().map(|p| p.join("mixin").join("theme.txt"))
 }
 
+fn load_theme_preference_from(primary: Option<&PathBuf>, legacy: Option<&PathBuf>) -> bool {
+    if let Some(p) = primary.filter(|p| p.exists()) {
+        return fs::read_to_string(p)
+            .map(|s| s.trim() != "light")
+            .unwrap_or(false);
+    }
+    if let Some(old_p) = legacy.filter(|p| p.exists()) {
+        if let Ok(content) = fs::read_to_string(old_p) {
+            if let Some(p) = primary {
+                if let Some(parent) = p.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                let _ = fs::write(p, &content);
+            }
+            return content.trim() != "light";
+        }
+    }
+    false
+}
+
 fn load_theme_preference() -> bool {
-    theme_pref_path()
-        .and_then(|p| fs::read_to_string(p).ok())
-        .map(|s| s.trim() != "light")
-        .unwrap_or(false)
+    load_theme_preference_from(theme_pref_path().as_ref(), legacy_theme_pref_path().as_ref())
 }
 
 fn save_theme_preference(dark_mode: bool) {
@@ -805,9 +832,35 @@ fn save_theme_preference(dark_mode: bool) {
     }
 }
 
+fn load_identity_from(
+    primary: Option<&PathBuf>,
+    legacy: Option<&PathBuf>,
+) -> Option<(String, String)> {
+    let path = primary?;
+    if path.exists() {
+        let private = fs::read_to_string(path).ok()?;
+        return Some((private.clone(), public_from_private(&private).ok()?));
+    }
+    if let Some(old_path) = legacy.filter(|p| p.exists()) {
+        let private = fs::read_to_string(old_path).ok()?;
+        let pub_pem = public_from_private(&private).ok()?;
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if fs::write(path, &private).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+            }
+        }
+        return Some((private, pub_pem));
+    }
+    None
+}
+
 fn load_identity() -> Option<(String, String)> {
-    let private = fs::read_to_string(identity_path()?).ok()?;
-    Some((private.clone(), public_from_private(&private).ok()?))
+    load_identity_from(identity_path().as_ref(), legacy_identity_path().as_ref())
 }
 
 fn save_identity(private: &str) {
@@ -846,12 +899,12 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([780.0, 540.0])
             .with_min_inner_size([720.0, 520.0])
-            .with_title("密信 · 安全传递"),
+            .with_title("火漆 · 安全传递"),
         ..Default::default()
     };
     let initial_dark = load_theme_preference();
     eframe::run_native(
-        "密信",
+        "火漆",
         options,
         Box::new(move |cc| {
             theme::configure_fonts(&cc.egui_ctx);
@@ -998,6 +1051,40 @@ mod tests {
 
         // Decrypt with wrong password must fail
         assert!(decrypt_payload("wrong_password", &cipher).is_err());
+    }
+
+    #[test]
+    fn legacy_identity_and_theme_migration() {
+        let base = std::env::temp_dir().join(format!("waxseal_app_mig_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let legacy_id = base.join("mixin").join("identity.pem");
+        let new_id = base.join("waxseal").join("identity.pem");
+        let legacy_theme = base.join("mixin").join("theme.txt");
+        let new_theme = base.join("waxseal").join("theme.txt");
+        fs::create_dir_all(legacy_id.parent().unwrap()).unwrap();
+
+        let (priv_pem, pub_pem) = generate_identity().unwrap();
+        let legacy_priv = priv_pem
+            .replace(
+                crypto::PEM_PRIVATE_HEADER,
+                "-----BEGIN MIXIN PRIVATE IDENTITY-----",
+            )
+            .replace(
+                crypto::PEM_PRIVATE_FOOTER,
+                "-----END MIXIN PRIVATE IDENTITY-----",
+            );
+        fs::write(&legacy_id, &legacy_priv).unwrap();
+        fs::write(&legacy_theme, "dark").unwrap();
+
+        let migrated = load_identity_from(Some(&new_id), Some(&legacy_id)).unwrap();
+        assert_eq!(migrated.0, legacy_priv);
+        assert_eq!(migrated.1, pub_pem);
+        assert!(new_id.exists());
+
+        assert!(load_theme_preference_from(Some(&new_theme), Some(&legacy_theme)));
+        assert!(new_theme.exists());
+
+        let _ = fs::remove_dir_all(&base);
     }
 }
 

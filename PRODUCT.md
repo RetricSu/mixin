@@ -1,4 +1,4 @@
-# 密信产品约束
+# 火漆 (Waxseal) 产品约束
 
 ## Register
 
