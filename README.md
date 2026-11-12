@@ -1,4 +1,4 @@
-# 密信 (Mixin)
+# 火漆 (Waxseal)
 
 一个给普通人用的桌面端对端安全传递工具。打开后只需选择“发送”或“接收”，不必理解复杂密码学术语。
 
@@ -6,7 +6,7 @@
 
 - **现代桌面设计**：精心打造的现代化桌面端界面，提供沉浸式暗色主题与清晰明亮浅色主题，支持状态记忆。
 - **发送文字与任意文件**：不仅支持文字密码与敏感信息，还支持任意文件格式（文档、图片、表格、压缩包等）的高强度封装加密。
-- **拖拽交互 (Drag & Drop)**：支持直接把待发送文件拖入窗口；收到 `.mixin` 密信文件也可直接拖入解密。
+- **拖拽交互 (Drag & Drop)**：支持直接把待发送文件拖入窗口；收到 `.seal`（并兼容旧版 `.mixin`）密信文件也可直接拖入解密。
 - **双重安全加密模式**：
   - **约定口令 (AES-256-GCM)**：双方约定一个密码，适合临时、点对点沟通。内置随机安全口令生成器（如 `golden-falcon-7281`）。
   - **联系人专属 (X25519 + Ed25519 + AES-256-GCM)**：基于现代椭圆曲线 X25519 临时密钥交换并派生 AES-256 会话密钥，结合 Ed25519 发件人数字签名，确保仅对方能解密且真实发件人身份无法冒充与篡改，无需每次约定口令。
@@ -25,28 +25,28 @@
 
 ## 下载与安装
 
-密信提供跨平台官方编译安装包（支持 macOS、Windows、Linux 三大主流平台）：
+火漆提供跨平台官方编译安装包（支持 macOS、Windows、Linux 三大主流平台）：
 
 ### 🍎 macOS
-- 前往 [Releases](https://github.com/RetricSu/mixin/releases) 页面下载对应芯片的安装包：
-  - Apple Silicon (M1/M2/M3/M4): `Mixin-aarch64-apple-darwin.dmg` 或 `.zip`
-  - Intel 处理器: `Mixin-x86_64-apple-darwin.dmg` 或 `.zip`
-- 打开 `.dmg` 文件后，直接将 **Mixin.app** 拖拽入 **Applications (应用程序)** 目录即可使用。
+- 前往 [Releases](https://github.com/RetricSu/waxseal/releases) 页面下载对应芯片的安装包：
+  - Apple Silicon (M1/M2/M3/M4): `Waxseal-aarch64-apple-darwin.dmg` 或 `.zip`
+  - Intel 处理器: `Waxseal-x86_64-apple-darwin.dmg` 或 `.zip`
+- 打开 `.dmg` 文件后，直接将 **Waxseal.app** 拖拽入 **Applications (应用程序)** 目录即可使用。
 
 ### 🪟 Windows
-- 前往 [Releases](https://github.com/RetricSu/mixin/releases) 下载 `Mixin-x86_64-pc-windows-msvc.zip`。
-- 解压后双击 `双击我.bat` 或直接运行 `mixin.exe`。
+- 前往 [Releases](https://github.com/RetricSu/waxseal/releases) 下载 `Waxseal-x86_64-pc-windows-msvc.zip`。
+- 解压后双击 `双击我.bat` 或直接运行 `waxseal.exe`（或 `火漆.exe`）。
 
 ### 🐧 Linux
-- 前往 [Releases](https://github.com/RetricSu/mixin/releases) 下载 `Mixin-x86_64-unknown-linux-gnu.tar.gz` 或 `.deb` 包。
+- 前往 [Releases](https://github.com/RetricSu/waxseal/releases) 下载 `Waxseal-x86_64-unknown-linux-gnu.tar.gz` 或 `.deb` 包。
 - Debian / Ubuntu 用户可直接安装 deb 包：
   ```sh
-  sudo dpkg -i mixin_*.deb
+  sudo dpkg -i waxseal_*.deb
   ```
 - 或解压 tar.gz 运行一键安装脚本：
   ```sh
-  tar -zxvf Mixin-x86_64-unknown-linux-gnu.tar.gz
-  cd Mixin-x86_64-unknown-linux-gnu
+  tar -zxvf Waxseal-x86_64-unknown-linux-gnu.tar.gz
+  cd Waxseal-x86_64-unknown-linux-gnu
   ./install.sh
   ```
 

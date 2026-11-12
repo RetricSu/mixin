@@ -242,7 +242,7 @@ impl App {
             );
             ui.add_space(2.0);
             ui.label(
-                RichText::new("密信")
+                RichText::new("火漆")
                     .size(16.0)
                     .strong()
                     .color(t.text_primary),
@@ -442,10 +442,11 @@ impl App {
             return;
         }
         let t = self.theme();
-        let is_mixin = hovered.iter().any(|f| {
-            f.path
-                .as_ref()
-                .is_some_and(|p| p.extension().is_some_and(|ext| ext == "mixin"))
+        let is_cipher_file = hovered.iter().any(|f| {
+            f.path.as_ref().is_some_and(|p| {
+                p.extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("seal") || ext.eq_ignore_ascii_case("mixin"))
+            })
         });
         let screen = ctx.screen_rect();
         let painter = ctx.layer_painter(egui::LayerId::new(
@@ -464,7 +465,7 @@ impl App {
         theme::paint_icon(
             &painter,
             egui::Rect::from_center_size(center - egui::vec2(0.0, 30.0), egui::vec2(32.0, 32.0)),
-            if is_mixin {
+            if is_cipher_file {
                 Icon::Receive
             } else {
                 Icon::Upload
@@ -474,7 +475,7 @@ impl App {
         painter.text(
             center + egui::vec2(0.0, 6.0),
             Align2::CENTER_CENTER,
-            if is_mixin {
+            if is_cipher_file {
                 "松开以打开密信"
             } else {
                 "松开以加密这个文件"
@@ -485,7 +486,7 @@ impl App {
         painter.text(
             center + egui::vec2(0.0, 30.0),
             Align2::CENTER_CENTER,
-            if is_mixin {
+            if is_cipher_file {
                 "将切换到接收密信"
             } else {
                 "文件只在本机读取和加密"
@@ -879,7 +880,7 @@ fn render_embedded_password_field(
                 theme::caption(ui, "对方的公开身份代码", &t);
                 ui.add(
                     egui::TextEdit::multiline(&mut self.recipient_custom_key)
-                        .hint_text("-----BEGIN MIXIN PUBLIC KEY-----")
+                        .hint_text("-----BEGIN WAXSEAL PUBLIC KEY-----")
                         .font(egui::TextStyle::Monospace)
                         .margin(egui::vec2(8.0, 5.0))
                         .desired_rows(2)
@@ -1000,7 +1001,7 @@ fn render_embedded_password_field(
             ui.horizontal(|ui| {
                 if is_file {
                     if theme::primary_button(ui, "保存密信文件", &t)
-                        .on_hover_text("保存为 .mixin 文件，对方可直接拖入密信打开")
+                        .on_hover_text("保存为 .seal 文件，对方可直接拖入火漆打开")
                         .clicked()
                     {
                         self.save_generated_cipher();
@@ -1037,7 +1038,7 @@ fn render_embedded_password_field(
                         );
                     }
                     if theme::secondary_button(ui, "保存密信文件", &t)
-                        .on_hover_text("保存为 .mixin 文件，对方可直接拖入密信打开")
+                        .on_hover_text("保存为 .seal 文件，对方可直接拖入火漆打开")
                         .clicked()
                     {
                         self.save_generated_cipher();
@@ -1074,13 +1075,13 @@ fn render_embedded_password_field(
         let default_name = match &self.send_file {
             Some(file) if self.payload_type == PayloadType::File => {
                 let stem = display_name(&file.name, &file.extension);
-                format!("{stem}.mixin")
+                format!("{stem}.seal")
             }
-            _ => "密信.mixin".to_string(),
+            _ => "密信.seal".to_string(),
         };
         let Some(path) = rfd::FileDialog::new()
             .set_file_name(default_name)
-            .add_filter("密信文件", &["mixin"])
+            .add_filter("火漆密信文件", &["seal"])
             .save_file()
         else {
             return;
@@ -1188,7 +1189,12 @@ fn render_embedded_password_field(
                     egui::vec2(ui.available_width(), EDITOR_MIN_HEIGHT),
                     Layout::left_to_right(Align::Center),
                     |ui| {
-                        file_tile(ui, "mixin", &t);
+                        let tile_ext = Path::new(&name)
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .filter(|e| !e.is_empty())
+                            .unwrap_or("seal");
+                        file_tile(ui, tile_ext, &t);
                         ui.add_space(4.0);
                         let buttons_width = 150.0;
                         ui.allocate_ui_with_layout(
@@ -1275,7 +1281,7 @@ fn render_embedded_password_field(
         theme::paper(ui, &t, |ui| {
             let response = ui.add(
                 egui::TextEdit::multiline(&mut self.receive_input)
-                    .hint_text("粘贴收到的密信，或把 .mixin 文件拖进窗口")
+                    .hint_text("粘贴收到的密信，或把 .seal / .mixin 文件拖进窗口")
                     .font(egui::TextStyle::Monospace)
                     .frame(false)
                     .margin(egui::vec2(0.0, 2.0))
@@ -1327,7 +1333,7 @@ fn render_embedded_password_field(
 
     fn open_cipher_file(&mut self) {
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("密信文件", &["mixin", "txt"])
+            .add_filter("火漆密信文件", &["seal", "mixin", "txt"])
             .pick_file()
         else {
             return;
@@ -1886,7 +1892,7 @@ fn render_embedded_password_field(
 
     fn save_qr(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .set_file_name("mixin_qr.png")
+            .set_file_name("waxseal_qr.png")
             .add_filter("PNG 图片", &["png"])
             .save_file()
         {
@@ -2179,7 +2185,7 @@ fn render_embedded_password_field(
             theme::field_label(ui, "公开身份代码", &t);
             ui.add(
                 egui::TextEdit::multiline(&mut self.new_contact_key)
-                    .hint_text("-----BEGIN MIXIN PUBLIC KEY-----")
+                    .hint_text("-----BEGIN WAXSEAL PUBLIC KEY-----")
                     .font(egui::TextStyle::Monospace)
                     .margin(egui::vec2(8.0, 6.0))
                     .desired_rows(3)
@@ -2293,7 +2299,7 @@ fn render_embedded_password_field(
 
     fn backup_identity(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .set_file_name("mixin_identity.pem")
+            .set_file_name("waxseal_identity.pem")
             .save_file()
         {
             match fs::write(&path, &self.identity.0) {

@@ -52,7 +52,7 @@ jobs:
 
       - name: Ad-hoc Code Sign App
         run: |
-          codesign --force --deep --sign - "target/${{ matrix.target }}/release/bundle/osx/Mixin.app" || true
+          codesign --force --deep --sign - "target/${{ matrix.target }}/release/bundle/osx/Waxseal.app" || true
 
       - name: Package macOS DMG & ZIP
         run: |
@@ -60,19 +60,19 @@ jobs:
           APP_DIR="target/${{ matrix.target }}/release/bundle/osx"
 
           # 1. Create Zip Archive
-          ditto -c -k --keepParent "$APP_DIR/Mixin.app" "artifacts/Mixin-${{ matrix.target }}.zip"
+          ditto -c -k --keepParent "$APP_DIR/Waxseal.app" "artifacts/Waxseal-${{ matrix.target }}.zip"
 
           # 2. Create DMG Installer
           create-dmg \
-            --volname "Mixin" \
+            --volname "Waxseal" \
             --window-pos 200 120 \
             --window-size 660 400 \
             --icon-size 100 \
-            --icon "Mixin.app" 180 180 \
+            --icon "Waxseal.app" 180 180 \
             --app-drop-link 480 180 \
-            --hide-extension "Mixin.app" \
+            --hide-extension "Waxseal.app" \
             --no-internet-enable \
-            "artifacts/Mixin-${{ matrix.target }}.dmg" \
+            "artifacts/Waxseal-${{ matrix.target }}.dmg" \
             "$APP_DIR/" || true
 
       - name: Upload macOS Artifacts
@@ -111,18 +111,18 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "artifacts"
-          $packageDir = "artifacts/Mixin-${{ matrix.target }}"
+          $packageDir = "artifacts/Waxseal-${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path $packageDir
 
-          Copy-Item "target/${{ matrix.target }}/release/mixin.exe" -Destination "$packageDir/mixin.exe"
-          Copy-Item "target/${{ matrix.target }}/release/mixin.exe" -Destination "$packageDir/密信.exe"
+          Copy-Item "target/${{ matrix.target }}/release/waxseal.exe" -Destination "$packageDir/waxseal.exe"
+          Copy-Item "target/${{ matrix.target }}/release/waxseal.exe" -Destination "$packageDir/火漆.exe"
           Copy-Item "dist/双击我.bat" -Destination "$packageDir/双击我.bat"
           Copy-Item "dist/说明.txt" -Destination "$packageDir/说明.txt"
           if (Test-Path "assets/icons/icon.ico") {
             Copy-Item "assets/icons/icon.ico" -Destination "$packageDir/icon.ico"
           }
 
-          Compress-Archive -Path "$packageDir/*" -DestinationPath "artifacts/Mixin-${{ matrix.target }}.zip" -Force
+          Compress-Archive -Path "$packageDir/*" -DestinationPath "artifacts/Waxseal-${{ matrix.target }}.zip" -Force
           Remove-Item -Recurse -Force $packageDir
 
       - name: Upload Windows Artifacts
@@ -170,21 +170,21 @@ jobs:
       - name: Package Linux tar.gz
         run: |
           mkdir -p artifacts
-          STAGE_DIR="artifacts/Mixin-${{ matrix.target }}"
+          STAGE_DIR="artifacts/Waxseal-${{ matrix.target }}"
           mkdir -p "$STAGE_DIR"
 
-          cp "target/${{ matrix.target }}/release/mixin" "$STAGE_DIR/"
-          chmod +x "$STAGE_DIR/mixin"
+          cp "target/${{ matrix.target }}/release/waxseal" "$STAGE_DIR/"
+          chmod +x "$STAGE_DIR/waxseal"
           cp "dist/install-linux.sh" "$STAGE_DIR/install.sh"
           chmod +x "$STAGE_DIR/install.sh"
-          cp "assets/mixin.desktop" "$STAGE_DIR/"
+          cp "assets/waxseal.desktop" "$STAGE_DIR/"
           cp "dist/说明.txt" "$STAGE_DIR/"
           cp "README.md" "$STAGE_DIR/"
           if [ -f "assets/icons/icon.png" ]; then
             cp "assets/icons/icon.png" "$STAGE_DIR/"
           fi
 
-          tar -czvf "artifacts/Mixin-${{ matrix.target }}.tar.gz" -C artifacts "Mixin-${{ matrix.target }}"
+          tar -czvf "artifacts/Waxseal-${{ matrix.target }}.tar.gz" -C artifacts "Waxseal-${{ matrix.target }}"
           rm -rf "$STAGE_DIR"
 
           # Include .deb if generated
@@ -232,7 +232,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.vars.outputs.tag }}
-          name: 密信 (Mixin) ${{ steps.vars.outputs.tag }}
+          name: 火漆 (Waxseal) ${{ steps.vars.outputs.tag }}
           draft: false
           prerelease: false
           generate_release_notes: true

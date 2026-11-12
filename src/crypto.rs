@@ -20,10 +20,10 @@ use x25519_dalek::{PublicKey, StaticSecret};
 pub const PREFIX: &str = "MX1.";
 pub const IDENTITY_PREFIX: &str = "MXID2.";
 
-pub const PEM_PRIVATE_HEADER: &str = "-----BEGIN MIXIN PRIVATE IDENTITY-----";
-pub const PEM_PRIVATE_FOOTER: &str = "-----END MIXIN PRIVATE IDENTITY-----";
-pub const PEM_PUBLIC_HEADER: &str = "-----BEGIN MIXIN PUBLIC KEY-----";
-pub const PEM_PUBLIC_FOOTER: &str = "-----END MIXIN PUBLIC KEY-----";
+pub const PEM_PRIVATE_HEADER: &str = "-----BEGIN WAXSEAL PRIVATE IDENTITY-----";
+pub const PEM_PRIVATE_FOOTER: &str = "-----END WAXSEAL PRIVATE IDENTITY-----";
+pub const PEM_PUBLIC_HEADER: &str = "-----BEGIN WAXSEAL PUBLIC KEY-----";
+pub const PEM_PUBLIC_FOOTER: &str = "-----END WAXSEAL PUBLIC KEY-----";
 
 /// Argon2id 内存开销（KiB），符合 OWASP / RFC 9106 推荐配置（19 MiB）
 pub const ARGON2_M_COST: u32 = 19456;
@@ -51,6 +51,7 @@ pub const IDENTITY_HEADER_LEN: usize = 64 + 32 + NONCE_LEN + 64;
 /// 专属密文最小有效负载长度（Header + Tag = 188 字节）
 pub const MIN_IDENTITY_PAYLOAD_LEN: usize = IDENTITY_HEADER_LEN + TAG_LEN;
 
+// 保留历史域分离标签，确保存量密文（MXID2.）及本地身份密钥向后兼容
 const SIGN_DOMAIN_TAG: &[u8] = b"mixin-x25519-ed25519-v1";
 const HKDF_AES_INFO: &[u8] = b"mixin-x25519-aes-gcm-key";
 
@@ -177,7 +178,10 @@ pub fn parse_public_key(public_str: &str) -> Result<(VerifyingKey, PublicKey), S
         .map(str::trim)
         .filter(|line| !line.starts_with("-----"))
         .collect();
-    let clean = raw.strip_prefix("MXPK1.").unwrap_or(&raw);
+    let clean = raw
+        .strip_prefix("WSPK1.")
+        .or_else(|| raw.strip_prefix("MXPK1."))
+        .unwrap_or(&raw);
     let bytes = STANDARD
         .decode(clean)
         .map_err(|_| "无效的公开身份代码，请确认复制完整。".to_string())?;
@@ -623,5 +627,28 @@ mod tests {
         let non_id_token = format!("{PREFIX}AQIDBA==");
         let err = decrypt_with(&bob_priv, &non_id_token).unwrap_err();
         assert!(err.contains("这不是专属身份加密内容"));
+    }
+
+    #[test]
+    fn legacy_mixin_pem_headers_remain_compatible() {
+        let (priv_pem, pub_pem) = generate_identity().unwrap();
+        assert!(priv_pem.starts_with(PEM_PRIVATE_HEADER));
+        assert!(pub_pem.starts_with(PEM_PUBLIC_HEADER));
+
+        let legacy_priv = priv_pem
+            .replace(PEM_PRIVATE_HEADER, "-----BEGIN MIXIN PRIVATE IDENTITY-----")
+            .replace(PEM_PRIVATE_FOOTER, "-----END MIXIN PRIVATE IDENTITY-----");
+        let legacy_pub = pub_pem
+            .replace(PEM_PUBLIC_HEADER, "-----BEGIN MIXIN PUBLIC KEY-----")
+            .replace(PEM_PUBLIC_FOOTER, "-----END MIXIN PUBLIC KEY-----");
+
+        assert_eq!(public_from_private(&legacy_priv).unwrap(), pub_pem);
+        assert_eq!(
+            compute_fingerprint(&legacy_pub),
+            compute_fingerprint(&pub_pem)
+        );
+
+        let token = encrypt_for(&legacy_priv, &legacy_pub, b"legacy-compat").unwrap();
+        assert_eq!(decrypt_with(&priv_pem, &token).unwrap(), b"legacy-compat");
     }
 }

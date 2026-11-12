@@ -92,7 +92,10 @@ fn layouts_fit_native_window_sizes_in_both_themes() {
                 "add-contact",
             ] {
                 let ctx = egui::Context::default();
-                if std::env::var("MIXIN_REVIEW_DIR").is_ok() {
+                if std::env::var("WAXSEAL_REVIEW_DIR")
+                    .or_else(|_| std::env::var("MIXIN_REVIEW_DIR"))
+                    .is_ok()
+                {
                     ctx.set_pixels_per_point(2.0);
                 }
                 theme::configure_fonts(&ctx);
@@ -176,7 +179,9 @@ fn layouts_fit_native_window_sizes_in_both_themes() {
                         }
                     }
                 }
-                if let Ok(dir) = std::env::var("MIXIN_REVIEW_DIR") {
+                if let Ok(dir) =
+                    std::env::var("WAXSEAL_REVIEW_DIR").or_else(|_| std::env::var("MIXIN_REVIEW_DIR"))
+                {
                     export_mesh(
                         &ctx,
                         first,
@@ -452,8 +457,8 @@ fn file_encryption_and_decryption_ui_lifecycle() {
         "Raw ciphertext drawer must be hidden for files to avoid user fear"
     );
 
-    // 2. Receive file: simulate loading cipher file
-    let temp_cipher_path = std::env::temp_dir().join("annual_report.pdf.mixin");
+    // 2. Receive file: simulate loading .seal cipher file
+    let temp_cipher_path = std::env::temp_dir().join("annual_report.pdf.seal");
     fs::write(&temp_cipher_path, &app.generated_cipher).unwrap();
     app.load_cipher_file_for_receive(temp_cipher_path.clone());
     let _ = fs::remove_file(&temp_cipher_path);
@@ -469,7 +474,7 @@ fn file_encryption_and_decryption_ui_lifecycle() {
     assert!(
         output.shapes.iter().any(|shape| {
             if let egui::Shape::Text(text) = &shape.shape {
-                text.galley.job.text.contains("annual_report.pdf.mixin")
+                text.galley.job.text.contains("annual_report.pdf.seal")
             } else {
                 false
             }
@@ -630,7 +635,8 @@ fn password_review_card_and_delivery_guidance() {
 
     // Test file mode delivery guidance
     let file_guidance = app.delivery_guidance(true);
-    assert!(file_guidance.contains(".mixin"));
+    assert!(file_guidance.contains(".seal"));
+    assert!(file_guidance.contains("火漆"));
     assert!(file_guidance.contains("分流发送"));
 }
 

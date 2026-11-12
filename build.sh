@@ -12,12 +12,12 @@ cargo build --release --target x86_64-pc-windows-gnu
 
 mkdir -p dist
 lipo -create \
-  target/aarch64-apple-darwin/release/mixin \
-  target/x86_64-apple-darwin/release/mixin \
-  -output dist/密信
-cp target/x86_64-pc-windows-gnu/release/mixin.exe dist/密信.exe
-chmod +x dist/密信 dist/双击我.command
+  target/aarch64-apple-darwin/release/waxseal \
+  target/x86_64-apple-darwin/release/waxseal \
+  -output dist/火漆
+cp target/x86_64-pc-windows-gnu/release/waxseal.exe dist/火漆.exe
+chmod +x dist/火漆 dist/双击我.command
 
 echo
 echo "编好了："
-ls -lh dist/密信 dist/密信.exe
+ls -lh dist/火漆 dist/火漆.exe

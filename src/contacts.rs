@@ -11,20 +11,39 @@ pub struct Contact {
 }
 
 pub fn contacts_path() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|p| p.join("waxseal").join("contacts.json"))
+}
+
+fn legacy_contacts_path() -> Option<PathBuf> {
     dirs::data_local_dir().map(|p| p.join("mixin").join("contacts.json"))
 }
 
-pub fn load_contacts() -> Vec<Contact> {
-    let Some(path) = contacts_path() else {
+fn load_contacts_from(primary: Option<&PathBuf>, legacy: Option<&PathBuf>) -> Vec<Contact> {
+    let Some(path) = primary else {
         return Vec::new();
     };
-    if !path.exists() {
-        return Vec::new();
+    if path.exists() {
+        return fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
     }
-    fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+    if let Some(old_path) = legacy.filter(|p| p.exists()) {
+        if let Ok(text) = fs::read_to_string(old_path) {
+            if let Ok(contacts) = serde_json::from_str::<Vec<Contact>>(&text) {
+                if let Some(parent) = path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                let _ = fs::write(path, &text);
+                return contacts;
+            }
+        }
+    }
+    Vec::new()
+}
+
+pub fn load_contacts() -> Vec<Contact> {
+    load_contacts_from(contacts_path().as_ref(), legacy_contacts_path().as_ref())
 }
 
 pub fn save_contacts(contacts: &[Contact]) {
@@ -136,5 +155,31 @@ mod tests {
 
         assert!(update_contact_name(&mut list, 0, "Alice Work").is_ok());
         assert_eq!(list[0].name, "Alice Work");
+    }
+
+    #[test]
+    fn test_legacy_contacts_migration() {
+        let base = std::env::temp_dir().join(format!("waxseal_contacts_mig_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let legacy = base.join("mixin").join("contacts.json");
+        let primary = base.join("waxseal").join("contacts.json");
+        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+
+        let (_priv, pub_key) = generate_identity().unwrap();
+        let mut seed_list = Vec::new();
+        let contact = Contact {
+            name: "LegacyAlice".into(),
+            public_key: pub_key.clone(),
+            fingerprint: compute_fingerprint(&pub_key),
+            created_at: "2025-01-01".into(),
+        };
+        seed_list.push(contact.clone());
+        fs::write(&legacy, serde_json::to_string_pretty(&seed_list).unwrap()).unwrap();
+
+        let loaded = load_contacts_from(Some(&primary), Some(&legacy));
+        assert_eq!(loaded, seed_list);
+        assert!(primary.exists(), "Contacts should be migrated to new waxseal path");
+
+        let _ = fs::remove_dir_all(&base);
     }
 }
